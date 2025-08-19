@@ -1,0 +1,60 @@
+{
+  "name": "starches-builder",
+  "version": "1.0.0",
+  "description": "Alizarin builder for Hugo",
+  "keywords": [
+    "static",
+    "search",
+    "geospatial",
+    "graph",
+    "ontology"
+  ],
+  "homepage": "https://github.com/flaxandteal/starches-builder#readme",
+  "bugs": {
+    "url": "https://github.com/flaxandteal/starches-builder/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flaxandteal/starches-builder.git"
+  },
+  "license": "AGPLv3",
+  "author": "Phil Weir <phil.weir@flaxandteal.co.uk>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "starches-builder": "./dist/index.js"
+  },
+  "scripts": {
+    "tsc": "tsc -p tsconfig.json",
+    "dev": "tsx ./src/index.ts",
+    "watch": "tsup ./src/index.ts --watch --format esm",
+    "bundle": "tsup ./src/index.ts --format esm",
+    "upload": "pnpm bundle && npm publish",
+    "test": "jest --verbose ./tests",
+    "lint": "eslint js --ext .ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "@jest/globals": "^30.0.5",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.14.0",
+    "eslint": "^9.24.0",
+    "jest": "^30.0.5",
+    "prettier": "^3.5.3",
+    "tsup": "^8.0.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.29.0"
+  },
+  "dependencies": {
+    "alizarin": "^1.0.0",
+    "flatbush": "^4.5.0",
+    "flatgeobuf": "^4.1.1",
+    "geojson": "^0.5.0",
+    "pagefind": "^1.3.0",
+    "ts-jest": "^29.4.1"
+  }
+}
