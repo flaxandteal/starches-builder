@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "2", features = ["full"] }
 napi-derive = "2"
-flatgeobuf = "4.6.0"
-geozero = "0.14.0"
+flatgeobuf = { version = "4.6.0", default-features = false }
+geozero = { version = "0.14.0", default-features = false, features = ["with-geojson"] }
 
 [build-dependencies]
 napi-build = "2"
