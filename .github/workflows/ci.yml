@@ -129,5 +129,11 @@ jobs:
           name: bindings-x86_64-unknown-linux-gnu
           path: .
 
+      - name: List downloaded files
+        run: ls -la *.node
+
+      - name: Create symlink for testing
+        run: ln -sf starches-builder.linux-x64-gnu.node starches-builder.node
+
       - name: Run tests
         run: npm test

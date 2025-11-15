@@ -28,3 +28,27 @@ export function registriesToRegcode(registries: string[]) {
     }, 0);
 }
 
+export async function getValueFromPath(asset: any, path: string): Promise<any> {
+    const segments = path.split(".");
+    async function get(value: any, key: string) {
+        if (!value.__has) {
+            if (!value.__has(key)) {
+                return undefined;
+            }
+            return value[key];
+        }
+        return value[key];
+    }
+    if (!segments[0]) {
+        // If it starts with a dot
+        segments.pop();
+    }
+    let headValue = asset;
+    let segment: string | undefined = segments[0];
+    while (segment) {
+        // TODO: this is only necessary to await at every step because we do not know whether the key is valid
+        headValue = await get(asset, segment);
+        segment = segments.pop();
+    }
+    return headValue;
+}

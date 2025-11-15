@@ -1,8 +1,7 @@
 import Handlebars from 'handlebars';
-import { staticTypes, interfaces } from 'alizarin';
-import { slugify } from "./utils";
-import { Asset, IAssetFunctions, ModelEntry, PrebuildConfiguration } from "./types";
-import { GraphManager, WKRM, ResourceModelWrapper, staticTypes, staticStore } from 'alizarin';
+import { slugify, getValueFromPath } from "./utils";
+import { Asset, IAssetFunctions, PrebuildConfiguration, ModelEntry } from "./types";
+import { GraphManager, staticStore, staticTypes, interfaces } from 'alizarin';
 import fs from "fs";
 
 class AssetFunctions implements IAssetFunctions {
@@ -72,61 +71,57 @@ class AssetFunctions implements IAssetFunctions {
   }
 
   async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean): Promise<Asset> {
+    /**
+     * getMeta will use the staticAsset where possible, but that _can_ be dynamic (i.e. raw asset) if you have
+     * not already serialized.
+     */
     const modelType = asset.__.wkrm.modelClassName;
     let displayName: string = "(unknown)"; // TODO: translate
     if (await asset.$?.getName) {
       displayName = await asset.$.getName();
     }
 
-    let geometryParent;
-    let location = null;
-    let geometry = null;
-    if (
-      ((staticAsset.__has && await staticAsset.__has('location_data')) || 'location_data' in staticAsset)
-    ) {
-      let locationData = await staticAsset.location_data;
-      if (Array.isArray(locationData)) {
-        locationData = locationData[0]; // RMV: allow multiple location datas
-      }
-      if (
-        (locationData.__has && locationData.__has('geometry')) || 'geometry' in locationData
-      ) {
-        geometryParent = await locationData.geometry;
-        if (!geometryParent) {
-          console.warn("No geometry node for", staticAsset);
-        } else {
-          geometry = await locationData.geometry.geospatial_coordinates;
-          location = geometry;
+    let geometry = await getValueFromPath(
+      staticAsset,
+      this.config ? this.config.paths["geometry"] : ".location_data.0.geometry.geospatial_coordinates"
+    );
+    if (!geometry) {
+      console.warn("No geometry node for", staticAsset);
+    }
+    let location = await getValueFromPath(
+      staticAsset,
+      this.config ? this.config.paths["location"] : ".location_data.0.geometry.geospatial_coordinates"
+    );
+    if (!geometry) {
+      console.warn("No geometry node for", staticAsset);
+    }
 
-          if (location && location["features"]) {
-            const polygon = location["features"][0]["geometry"]["coordinates"];
-            if (Array.isArray(polygon[0])) {
-              let polygons = polygon[0];
-              if ((Array.isArray(polygons[0][0]))) {
-                polygons = polygons.flat();
-              }
-              const centre = polygons.reduce((c: Array<number>, p: Array<number>) => {
-                c[0] += p[0] / polygons.length;
-                c[1] += p[1] / polygons.length;
-                return c;
-              }, [0, 0]);
-              location = {
-                  "features": [{
-                      "geometry": {
-                          "type": "Point",
-                          "coordinates": centre
-                      }
-                  }]
-              }
-            }
-          }
+    if (location && location["features"]) {
+      const polygon = location["features"][0]["geometry"]["coordinates"];
+      if (Array.isArray(polygon[0])) {
+        let polygons = polygon[0];
+        if ((Array.isArray(polygons[0][0]))) {
+          polygons = polygons.flat();
         }
-        if (location && location["features"]) {
-          location = location["features"][0]["geometry"]["coordinates"];
-        } else {
-          location = null;
+        const centre = polygons.reduce((c: Array<number>, p: Array<number>) => {
+          c[0] += p[0] / polygons.length;
+          c[1] += p[1] / polygons.length;
+          return c;
+        }, [0, 0]);
+        location = {
+            "features": [{
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": centre
+                }
+            }]
         }
       }
+    }
+    if (location && location["features"]) {
+      location = location["features"][0]["geometry"]["coordinates"];
+    } else {
+      location = null;
     }
 
     const slug = await this.toSlug(displayName, asset, prefix);
@@ -209,24 +204,9 @@ class AssetFunctions implements IAssetFunctions {
     }
     return Promise.all(resources);
   }
+
   getModelFiles():{[key: string]: ModelEntry} {
-    return {
-      "076f9381-7b00-11e9-8d6b-80000b44d1d9": new ModelEntry(
-          "Heritage Asset.json",
-          {
-          //  "Garden": "gardens_merged.json",
-          //  "IHR": "ihr_merged_mp.json",
-          //  "Monuments": "monuments_merged.json",
-          //  "Buildings": "buildings_merged.json"
-          }
-      ),
-      "3a6ce8b9-0357-4a72-b9a9-d8fdced04360": new ModelEntry(
-          "Registry.json",
-          {
-            "Registry": "registries.json"
-          }
-      )
-    }
+    return this.config.models;
   }
 };
 

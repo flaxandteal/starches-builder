@@ -11,14 +11,21 @@ class PrebuildSource {
   }
 };
 
+class PrebuildPaths {
+  location: string = ".location_data.0.geometry.geospatial_coordinates"
+  geometry: string = ".location_data.0.geometry.geospatial_coordinates"
+};
+
 class PrebuildConfiguration {
   [key: string]: any
   indexTemplates: {[mdl: string]: string}
   sources: PrebuildSource[]
+  paths: {[key: string]: string}
   permissionsFile?: string
   constructor(config: PrebuildConfiguration) {
     this.indexTemplates = config.indexTemplates;
     this.sources = config.sources;
+    this.paths = config.paths || new PrebuildPaths();
     Object.assign(this, config);
   }
 };
@@ -74,7 +81,7 @@ class ModelEntry {
 
   constructor(graph: string, resources: {[key: string]: string}) {
     this.graph = graph;
-    this.resources = resources;
+    this.resources = resources || [];
   }
 }
 

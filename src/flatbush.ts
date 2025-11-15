@@ -5,7 +5,7 @@ import { IndexEntry } from "./types";
 import { type FeatureCollection, type Feature } from "geojson";
 import { reindexFgb } from "./native-reindex";
 
-export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir: string) {
+export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir: string, copyrightTerms?: string) {
     if (locpairs.length === 0) {
         console.warn("No locations found for Flatbush indexing");
         return;
@@ -26,7 +26,7 @@ export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir
         `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
         `${outputDir}/fgb/nihed-assets.fgb`,
         'nihed-assets',
-        'NI Historic Environment Division Public Assets (Crown Copyright, see site for license)'
+        copyrightTerms || "See site for copyright terms"
     );
 
     const flatbushIndex = new Flatbush(locations.length);
