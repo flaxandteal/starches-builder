@@ -3,11 +3,11 @@ import { fileURLToPath } from 'url';
 
 export const REGISTRIES: string[] = [];
 
-export const FOR_ARCHES: string[] = [];
+export const FOR_ARCHES: boolean = false;
 
 export const CHUNK_SIZE_CHARS = 10000000;
 
-export const PUBLIC_MODELS: string[] = ["Asset"];
+export const PUBLIC_MODELS: string[] = ["HeritageAsset", "Registry"];
 
 export const DEFAULT_LANGUAGE = "en"; // FIXME
 

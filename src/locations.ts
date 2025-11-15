@@ -18,7 +18,8 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
         return agg
     }, {});
     return (await Promise.all(assetMetadata.map(async (asset: Asset) => {
-        if (asset.meta.location && (includePrivate || PUBLIC_MODELS.includes(asset.type))) {
+        /// RMV
+        if (asset.meta && asset.meta.location && (includePrivate || PUBLIC_MODELS.includes(asset.type))) {
             {
                 const loc = JSON.parse(asset.meta.location);
                 const registries = asset.meta.registries ? JSON.parse(asset.meta.registries) : [];

@@ -1,10 +1,10 @@
 import fs from "fs";
 import path from "path";
 import { reindex } from "../reindex.ts";
+import { etl } from "../etl.ts";
 
-export async function cli_index(definitions: string, site: string) {
-  const resourceFiles: string[] = [];
-  const resources = path.join(definitions, "business_data");
+export async function cli_index(definitions: string, preIndexDirectory: string, site: string) {
+  const preIndexFiles: string[] = [];
   const walk = (dir: string): void => {
     fs.readdir(dir, (err: Error | null, files: string[]) => {
       if (err) {
@@ -19,13 +19,18 @@ export async function cli_index(definitions: string, site: string) {
           }
           if (stat.isDirectory()) {
             walk(filePath);
-          } else if (stat.isFile() && path.extname(filePath) === ".json") {
-            resourceFiles.push(filePath);
+          } else if (stat.isFile() && path.extname(filePath).endsWith(".pi")) {
+            console.log("Added", filePath, "from pre-index");
+            preIndexFiles.push(filePath);
           }
         });
       });
     });
   };
-  walk(resources);
-  return reindex(resourceFiles, definitions, site);
+  walk(preIndexDirectory);
+  return reindex(preIndexFiles, definitions, site);
+}
+
+export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined) {
+  return etl(resourceFile, resourcePrefix);
 }

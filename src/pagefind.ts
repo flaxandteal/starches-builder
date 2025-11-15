@@ -25,28 +25,41 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
     const language = DEFAULT_LANGUAGE ?? "en";
     const registriesSet: Set<string> = new Set();
     let recordCount = 0;
+    const unmappedModels = new Set();
     for (const asset of assetMetadata) {
-        if (includePrivate || PUBLIC_MODELS.includes(asset.type)) {
-            const registries = asset.meta.registries ? JSON.parse(asset.meta.registries) : [];
-            for (const registry of registries) {
-                registriesSet.add(registry);
-            }
-            const designations = asset.meta.designations ? JSON.parse(asset.meta.designations) : [];
-            // const regcode = registriesToRegcode(registries);
-            await index.addCustomRecord({
-                url: `/asset/?slug=${asset.meta.slug}`,
-                // Only taking a bit of the plaintext for now... RMV
-                content: asset.content,
-                language: language,
-                // regcode: regcode, TODO
-                filters: {
-                    tags: registries,
-                    designations: designations
-                },
-                meta: asset.meta
-            });
-            recordCount += 1;
+        if (!includePrivate && !PUBLIC_MODELS.includes(asset.type)) {
+            unmappedModels.add(asset.type);
+            continue;
         }
+        const registries = asset.meta.registries ? JSON.parse(asset.meta.registries) : [];
+        for (const registry of registries) {
+            registriesSet.add(registry);
+        }
+        const designations = asset.meta.designations ? JSON.parse(asset.meta.designations) : [];
+        // const regcode = registriesToRegcode(registries);
+        await index.addCustomRecord({
+            url: `/asset/?slug=${asset.meta.slug}`,
+            // Only taking a bit of the plaintext for now... RMV
+            content: asset.content,
+            language: language,
+            // regcode: regcode, TODO
+            filters: {
+                tags: registries,
+                designations: designations
+            },
+            meta: asset.meta
+        });
+        recordCount += 1;
+    }
+    if (!includePrivate && unmappedModels.size) {
+        console.log(
+            "Not set to include private (non-public) models, so the only indexed models are:",
+            PUBLIC_MODELS.join(", ")
+        );
+        console.log(
+            "The following models were seen and not indexed:",
+            [...unmappedModels].sort().join(", ")
+        );
     }
     for (const registry of registriesSet) {
         const slug = slugify(registry);

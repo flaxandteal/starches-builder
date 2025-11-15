@@ -1,3 +1,28 @@
+class PrebuildSource {
+  [key: string]: any
+  resources: string
+  public: boolean
+  slugPrefix: string
+
+  constructor(source: PrebuildSource) {
+    this.resources = source.resources;
+    this.public = source.public;
+    this.slugPrefix = source.slugPrefix;
+  }
+};
+
+class PrebuildConfiguration {
+  [key: string]: any
+  indexTemplates: {[mdl: string]: string}
+  sources: PrebuildSource[]
+  permissionsFile?: string
+  constructor(config: PrebuildConfiguration) {
+    this.indexTemplates = config.indexTemplates;
+    this.sources = config.sources;
+    Object.assign(this, config);
+  }
+};
+
 class IndexEntry {
   loc: Array<number>
   hash: string
@@ -59,5 +84,5 @@ interface IAssetFunctions {
   initialize(): Promise<void>;
 }
 
-export { Asset, AssetMetadata, ModelEntry, IndexEntry };
+export { Asset, AssetMetadata, ModelEntry, IndexEntry, PrebuildConfiguration };
 export type { IAssetFunctions };

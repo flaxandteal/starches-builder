@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(NODE_OPTIONS=\"--experimental-vm-modules\" npm test)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

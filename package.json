@@ -22,8 +22,19 @@
   "type": "module",
   "main": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "*.node"
   ],
+  "napi": {
+    "name": "starches-builder",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl"
+      ]
+    }
+  },
   "bin": {
     "starches-builder": "./dist/index.js"
   },
@@ -31,14 +42,20 @@
     "tsc": "tsc -p tsconfig.json",
     "dev": "tsx ./src/index.ts",
     "watch": "tsup ./src/index.ts --watch --format esm",
-    "bundle": "tsup ./src/index.ts --format esm",
-    "upload": "pnpm bundle && npm publish",
-    "test": "jest --verbose ./tests",
-    "lint": "eslint js --ext .ts"
+    "build:native": "napi build --platform --release",
+    "build:native:debug": "napi build --platform",
+    "build": "npm run build:native && tsup ./src/index.ts --format esm",
+    "bundle": "npm run build",
+    "upload": "npm run bundle && npm publish",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --verbose ./tests",
+    "lint": "eslint js --ext .ts",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {
     "@eslint/js": "^9.24.0",
     "@jest/globals": "^30.0.5",
+    "@napi-rs/cli": "^3.4.1",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^22.14.0",
     "eslint": "^9.24.0",

@@ -2,9 +2,10 @@ import fs from "fs";
 import path from "path";
 import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
-import { type FeatureCollection } from "geojson";
+import { type FeatureCollection, type Feature } from "geojson";
 import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin';
 
+import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
 import { buildPagefind } from "./pagefind";
 import { buildFlatbush } from "./flatbush";
@@ -14,7 +15,13 @@ import { assetFunctions } from "./assets"; // TODO: make this configurable
 
 export async function reindex(files: string[] | null, definitionsDir: string, outputDir: string, includePrivate: boolean=false) {
     const { index, assetMetadata }: { index: pagefind.PagefindIndex, assetMetadata: Asset[] } = await buildPagefind(files, outputDir, includePrivate);
-    const locations = await getLocations(index, assetMetadata);
+    let locations: [IndexEntry, Feature][];
+    if (assetMetadata.length > 0) {
+        locations = await getLocations(index, assetMetadata);
+    } else {
+        console.warn("No asset metadata was found");
+        locations = [];
+    }
 
     const destination = `${outputDir}/definitions`;
     const all: {[k: string]: {[k2: string]: staticTypes.StaticGraphMeta}} = {"models": {}};
@@ -34,10 +41,11 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
             const file = await fs.promises.readFile(filePath);
             const graph = JSON.parse(file.toString())["graph"][0];
 
+            console.log(graph);
             graphs.push({
                 type: type,
                 filepath: filePath,
-                graph: graph,
+                graph: new staticTypes.StaticGraph(graph),
                 location: location
             });
         }
@@ -126,7 +134,7 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
             rmw.setPermittedNodegroups(ngs);
         }
         rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
-        const prunedGraph = rmw.exportGraph();
+        const prunedGraph = rmw.graph.copy();
         console.log("Loaded graph", target, filename);
         await fs.promises.writeFile(`${target}/${filename}`, JSON.stringify({
             graph: [prunedGraph],
@@ -299,6 +307,6 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
             JSON.stringify(registries)
         );
 
-        buildFlatbush(locations, outputDir);
+        await buildFlatbush(locations, outputDir);
     }
 }

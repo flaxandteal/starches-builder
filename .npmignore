@@ -1,0 +1,20 @@
+# Development files
+src/
+tests/
+.github/
+*.md
+!README.md
+
+# Rust files
+Cargo.toml
+Cargo.lock
+build.rs
+target/
+
+# TypeScript
+tsconfig.json
+*.ts
+!*.d.ts
+
+# Testing
+jest.config.js

@@ -1,0 +1,20 @@
+[package]
+name = "starches-builder"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["full"] }
+napi-derive = "2"
+flatgeobuf = "4.6.0"
+geozero = "0.14.0"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+strip = true

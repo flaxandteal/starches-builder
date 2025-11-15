@@ -2,11 +2,14 @@ import fs from "fs";
 import Flatbush from "flatbush";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { IndexEntry } from "./types";
-import { spawn } from 'node:child_process';
 import { type FeatureCollection, type Feature } from "geojson";
-import { STARCHES_UTILS_BIN } from "./utils";
+import { reindexFgb } from "./native-reindex";
 
-export function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir: string) {
+export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir: string) {
+    if (locpairs.length === 0) {
+        console.warn("No locations found for Flatbush indexing");
+        return;
+    }
     const locations = locpairs.map((locpair: [IndexEntry, Feature]) => locpair[0]);
     const features = locpairs.map((locpair: [IndexEntry, Feature]) => locpair[1]);
     const geoJsonAll: FeatureCollection = {
@@ -17,23 +20,14 @@ export function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir: stri
         `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
         fgbSerialize(geoJsonAll)
     );
-    const starches_utils = spawn(STARCHES_UTILS_BIN, [
-        './nihed-assets-wo-index.fgb',
-        './nihed-assets.fgb'
-    ], {
-        cwd: 'docs/fgb'
-    });
-    starches_utils.stdout.on('data', (data) => {
-          console.log(`stdout: ${data}`);
-    });
 
-    starches_utils.stderr.on('data', (data) => {
-          console.error(`stderr: ${data}`);
-    });
-
-    starches_utils.on('close', (code) => {
-          console.log(`child process exited with code ${code}`);
-    });
+    // Re-index using WASM instead of external binary
+    await reindexFgb(
+        `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
+        `${outputDir}/fgb/nihed-assets.fgb`,
+        'nihed-assets',
+        'NI Historic Environment Division Public Assets (Crown Copyright, see site for license)'
+    );
 
     const flatbushIndex = new Flatbush(locations.length);
     locations.forEach((loc: IndexEntry) => {
