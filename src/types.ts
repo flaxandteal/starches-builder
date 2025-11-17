@@ -1,34 +1,32 @@
-class PrebuildSource {
-  [key: string]: any
+interface PrebuildSource {
   resources: string
   public: boolean
   slugPrefix: string
-
-  constructor(source: PrebuildSource) {
-    this.resources = source.resources;
-    this.public = source.public;
-    this.slugPrefix = source.slugPrefix;
-  }
-};
-
-class PrebuildPaths {
-  location: string = ".location_data.0.geometry.geospatial_coordinates"
-  geometry: string = ".location_data.0.geometry.geospatial_coordinates"
-};
-
-class PrebuildConfiguration {
   [key: string]: any
+}
+
+interface PrebuildPaths {
+  location: string
+  geometry: string
+}
+
+const DEFAULT_PREBUILD_PATHS: PrebuildPaths = {
+  location: ".location_data.geometry.geospatial_coordinates",
+  geometry: ".location_data.geometry.geospatial_coordinates"
+};
+
+interface GraphConfiguration {
+  models: {[graphId: string]: ModelEntry}
+}
+
+interface PrebuildConfiguration {
   indexTemplates: {[mdl: string]: string}
   sources: PrebuildSource[]
-  paths: {[key: string]: string}
+  paths?: {[key: string]: string}
   permissionsFile?: string
-  constructor(config: PrebuildConfiguration) {
-    this.indexTemplates = config.indexTemplates;
-    this.sources = config.sources;
-    this.paths = config.paths || new PrebuildPaths();
-    Object.assign(this, config);
-  }
-};
+  customDatatypes?: {[datatype: string]: string}
+  [key: string]: any
+}
 
 class IndexEntry {
   loc: Array<number>
@@ -42,24 +40,17 @@ class IndexEntry {
   }
 };
 
-class AssetMetadata {
-  [key: string]: string
-
-  constructor(resourceinstanceid: string, geometry: object, location: object, title: string, slug: string, scopes: string) {
-    this.resourceinstanceid = resourceinstanceid;
-    if (geometry) {
-      this.geometry = JSON.stringify(geometry);
-    }
-    if (location) {
-      this.location = JSON.stringify(location);
-    }
-    this.title = title;
-    this.slug = slug;
-    this.designations = "[]";
-    this.scopes = scopes;
-    this.registries = "[]";
-  }
-};
+interface AssetMetadata {
+  resourceinstanceid: string
+  geometry?: string
+  location?: string
+  title: string
+  slug: string
+  designations: string
+  scopes: string
+  registries: string
+  [key: string]: string | undefined
+}
 
 class Asset {
   meta: AssetMetadata;
@@ -68,7 +59,16 @@ class Asset {
   type: string;
 
   constructor(resourceinstanceid: string, geometry: object, location: object, title: string, slug: string, content: string, type: string, scopes: string[]) {
-    this.meta = new AssetMetadata(resourceinstanceid, geometry, location, title, slug, JSON.stringify(scopes));
+    this.meta = {
+      resourceinstanceid,
+      geometry: geometry ? JSON.stringify(geometry) : undefined,
+      location: location ? JSON.stringify(location) : undefined,
+      title,
+      slug,
+      designations: "[]",
+      scopes: JSON.stringify(scopes),
+      registries: "[]"
+    };
     this.content = content;
     this.slug = slug;
     this.type = type;
@@ -76,11 +76,11 @@ class Asset {
 };
 
 class ModelEntry {
-  graph: string
+  name: string
   resources: {[key: string]: string}
 
-  constructor(graph: string, resources: {[key: string]: string}) {
-    this.graph = graph;
+  constructor(name: string, resources: {[key: string]: string}) {
+    this.name = name;
     this.resources = resources || [];
   }
 }
@@ -91,5 +91,5 @@ interface IAssetFunctions {
   initialize(): Promise<void>;
 }
 
-export { Asset, AssetMetadata, ModelEntry, IndexEntry, PrebuildConfiguration };
-export type { IAssetFunctions };
+export { Asset, ModelEntry, IndexEntry, DEFAULT_PREBUILD_PATHS };
+export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths };

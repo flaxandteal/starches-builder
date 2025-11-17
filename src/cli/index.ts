@@ -5,29 +5,24 @@ import { etl } from "../etl.ts";
 
 export async function cli_index(definitions: string, preIndexDirectory: string, site: string) {
   const preIndexFiles: string[] = [];
-  const walk = (dir: string): void => {
-    fs.readdir(dir, (err: Error | null, files: string[]) => {
-      if (err) {
-        throw err;
+
+  const walk = async (dir: string): Promise<void> => {
+    const files = await fs.promises.readdir(dir);
+    await Promise.all(files.map(async (file: string) => {
+      if (file.startsWith(".")) return;
+      const filePath = path.join(dir, file);
+      const stat = await fs.promises.stat(filePath);
+
+      if (stat.isDirectory()) {
+        await walk(filePath);
+      } else if (stat.isFile() && path.extname(filePath).endsWith(".pi")) {
+        console.log("Added", filePath, "from pre-index");
+        preIndexFiles.push(filePath);
       }
-      files.forEach((file: string) => {
-        const filePath = path.join(dir, file);
-        if (file.startsWith(".")) return;
-        fs.stat(filePath, (err: Error | null, stat: fs.Stats) => {
-          if (err) {
-            throw err;
-          }
-          if (stat.isDirectory()) {
-            walk(filePath);
-          } else if (stat.isFile() && path.extname(filePath).endsWith(".pi")) {
-            console.log("Added", filePath, "from pre-index");
-            preIndexFiles.push(filePath);
-          }
-        });
-      });
-    });
+    }));
   };
-  walk(preIndexDirectory);
+
+  await walk(preIndexDirectory);
   return reindex(preIndexFiles, definitions, site);
 }
 

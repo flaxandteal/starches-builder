@@ -1,11 +1,14 @@
 import Handlebars from 'handlebars';
 import { slugify, getValueFromPath } from "./utils";
-import { Asset, IAssetFunctions, PrebuildConfiguration, ModelEntry } from "./types";
+import { Asset, ModelEntry, DEFAULT_PREBUILD_PATHS } from "./types";
+import type { IAssetFunctions, GraphConfiguration, PrebuildConfiguration } from "./types";
 import { GraphManager, staticStore, staticTypes, interfaces } from 'alizarin';
 import fs from "fs";
+import { safeJsonParseFile } from './safe-utils';
 
 class AssetFunctions implements IAssetFunctions {
   config?: PrebuildConfiguration
+  graphs?: GraphConfiguration
   permissions: {[key: string]: {[key: string]: boolean | string} | boolean}
   templates: {[key: string]: HandlebarsTemplateDelegate<any>}
   slugCounter: {[key: string]: number};
@@ -33,9 +36,10 @@ class AssetFunctions implements IAssetFunctions {
   }
 
   async initialize() {
-    this.config = new PrebuildConfiguration(JSON.parse(await fs.promises.readFile("prebuild/prebuild.json", { encoding: "utf8" })));
-    this.permissions = JSON.parse(
-      await fs.promises.readFile(this.config.permissionsFile || 'prebuild/permissions.json', { encoding: "utf8" })
+    this.config = await safeJsonParseFile<PrebuildConfiguration>("prebuild/prebuild.json");
+    this.graphs = await safeJsonParseFile<GraphConfiguration>("prebuild/graphs.json");
+    this.permissions = await safeJsonParseFile(
+      this.config.permissionsFile || 'prebuild/permissions.json'
     );
     const templates = await Promise.all(Object.entries(this.config.indexTemplates).map(
       async ([mdl, file]: [string, string]): Promise<[string, HandlebarsTemplateDelegate<any>]> => {
@@ -49,7 +53,7 @@ class AssetFunctions implements IAssetFunctions {
     this.templates = Object.fromEntries(templates);
   }
 
-  shouldIndex(_asset: Asset) {
+  shouldIndex(_asset: Asset, _includePrivate: boolean = false) {
     return true;
   }
 
@@ -83,17 +87,17 @@ class AssetFunctions implements IAssetFunctions {
 
     let geometry = await getValueFromPath(
       staticAsset,
-      this.config ? this.config.paths["geometry"] : ".location_data.0.geometry.geospatial_coordinates"
+      this.config?.paths?.["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry
     );
     if (!geometry) {
       console.warn("No geometry node for", staticAsset);
     }
     let location = await getValueFromPath(
       staticAsset,
-      this.config ? this.config.paths["location"] : ".location_data.0.geometry.geospatial_coordinates"
-    );
-    if (!geometry) {
-      console.warn("No geometry node for", staticAsset);
+      this.config?.paths?.["location"] ?? DEFAULT_PREBUILD_PATHS.location
+    ) || geometry;
+    if (!location) {
+      console.warn("No location node for", staticAsset);
     }
 
     if (location && location["features"]) {
@@ -142,7 +146,7 @@ class AssetFunctions implements IAssetFunctions {
 
   // RMV: TO REFACTOR
   async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean) {
-    const resourceFile = JSON.parse((await fs.promises.readFile(filename, { encoding: "utf8" })).toString())
+    const resourceFile = await safeJsonParseFile(filename);
     const resourceList: staticTypes.StaticResource[] = resourceFile.business_data.resources;
     const graphs = resourceList.reduce((set: Set<string>, resource: staticTypes.StaticResource) => { set.add(resource.resourceinstance.graph_id); return set; }, new Set());
     const resources = [];
@@ -206,7 +210,7 @@ class AssetFunctions implements IAssetFunctions {
   }
 
   getModelFiles():{[key: string]: ModelEntry} {
-    return this.config.models;
+    return (this.graphs || {}).models || {};
   }
 };
 

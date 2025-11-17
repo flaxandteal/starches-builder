@@ -6,22 +6,30 @@ import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels } from 'alizarin';
 
 import { Asset } from './types.ts';
-import { NON_PUBLIC, slugify } from './utils.ts';
+import { slugify } from './utils.ts';
 import { assetFunctions } from './assets';
+import { safeJsonParse, safeJsonParseFile, safeJoinPath } from './safe-utils';
 
 const PUBLIC_FOLDER = 'docs';
 
 await assetFunctions.initialize();
-const MODEL_FILES = {
-  "076f9381-7b00-11e9-8d6b-80000b44d1d9": {"graph": "Heritage Asset" },
-  "3a6ce8b9-0357-4a72-b9a9-d8fdced04360": {"graph": "Registry", "resources": ["registries.json"] }
-};
-viewModels.CUSTOM_DATATYPES.set("tm65centrepoint", "non-localized-string");
+if (!assetFunctions.graphs) {
+  throw Error("You need to set up prebuild/graphs.json first");
+}
+if (!assetFunctions.config) {
+  throw Error("You need to set up prebuild/prebuild.json first");
+}
+const MODEL_FILES = assetFunctions.graphs.models;
+if (assetFunctions.config.customDatatypes) {
+  for (const [datatype, substitute] of Object.entries(assetFunctions.config.customDatatypes)) {
+    viewModels.CUSTOM_DATATYPES.set(datatype, substitute);
+  }
+}
 
 function initAlizarin(resourcesFiles: string[] | null) {
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
-        graphIdToGraphFile: ((graphId: string) => MODEL_FILES[graphId] && `prebuild/graphs/resource_models/${MODEL_FILES[graphId].graph}`),
+        graphIdToGraphFile: ((graphId: string) => MODEL_FILES[graphId] && `prebuild/graphs/resource_models/${MODEL_FILES[graphId].name}`),
         graphToGraphFile: ((graph: staticTypes.StaticGraphMeta) => graph.name && `prebuild/graphs/resource_models/${graph.name}.json`),
         graphIdToResourcesFiles: ((graphId: string) => {
           // If this is not a heritage, or we have been given no specific files, get the whole resource model.
@@ -49,35 +57,24 @@ function initAlizarin(resourcesFiles: string[] | null) {
 let warned = false;
 async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false): Promise<Asset | null> {
   const asset = await assetPromise;
-  console.log('PROCESS ASSET');
-  console.log(asset.__);
-  console.log(asset.__.wkrm);
-  console.log(asset.__.modelClassName);
   if (asset.__.wkrm.modelClassName !== "HeritageAsset") {
     if (!warned) {
       console.warn("No soft deletion, assuming all present", asset.__.wkrm.modelClassName)
     }
     warned = true;
   } else {
-    console.log('get sd');
     const sd = await asset.soft_deleted;
-    console.log(sd);
     if (sd) {
       return null;
     }
-      console.log('sd');
   }
   // TODO: there is an issue where if the awaits do not happen in sequence, the same tile will appear multiple times in a pseudo-list
   // const names = [
   //   [await asset.monument_names[0].monument_name, (await asset.monument_names[0]).__parentPseudo.tile.sortorder],
   //   [await asset.monument_names[1].monument_name, (await asset.monument_names[1]).__parentPseudo.tile.sortorder],
   // ].sort((a, b) => b[1] - a[1]).map(a => a[0]);
-  console.log(0);
   const staticAsset = await asset.forJson(true);
-  console.log(staticAsset);
-  console.log(1);
   const meta = await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
-  console.log(2);
   const replacer = function (_: string, value: any) {
     if (value instanceof Map) {
       const result = Object.fromEntries(value);
@@ -89,11 +86,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     return value;
   }
 
-  console.log(3);
   await fs.promises.mkdir(`${PUBLIC_FOLDER}/definitions/business_data`, {"recursive": true});
-  console.log(4);
-  await fs.promises.mkdir(`${PUBLIC_FOLDER}/definitions/business_data`, {"recursive": true});
-  console.log(5);
   const resource = asset.$.resource;
   const cache = await asset.$.getValueCache(true, async (value: interfaces.IViewModel) => {
     if (value instanceof viewModels.ResourceInstanceViewModel) {
@@ -106,26 +99,21 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
       };
     }
   });
-  console.log(6);
   if (cache && Object.values(cache).length > 0) {
     resource.__cache = cache;
   }
-  resource.__scopes = JSON.parse(meta.meta.scopes);
-  console.log(7);
+  resource.__scopes = safeJsonParse(meta.meta.scopes, 'resource scopes');
   resource.metadata = meta.meta;
-  console.log(resource.tiles);
   const serial = JSON.stringify(resource, replacer, 2)
-  console.log(8);
-  await fs.promises.writeFile(
-      `${PUBLIC_FOLDER}/definitions/business_data/${meta.slug}.json`,
-      serial
-  );
+  const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;
+  const safeFilePath = safeJoinPath(businessDataDir, `${meta.slug}.json`);
+  await fs.promises.writeFile(safeFilePath, serial);
 
   return meta;
 }
 
 function extractFeatures(geoJsonString: string): Feature[] {
-  const geoJson = JSON.parse(geoJsonString);
+  const geoJson = safeJsonParse(geoJsonString, 'GeoJSON string');
   if (geoJson["type"] === "FeatureCollection") {
     const features = geoJson["features"].filter(feat => feat);
     return features;
@@ -164,18 +152,16 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
       let assetBatch: Asset[] = (await Promise.all(assets.slice(b * n, (b + 1) * n).map(asset => processAsset(asset, resourcePrefix)))).filter(asset => asset !== null);
 
       function addFeatures(asset: Asset) {
-        try {
-          JSON.parse(asset.meta.registries).forEach((reg: string) => {
-            if (asset.meta.location) {
-              if (!registries[reg]) {
-                registries[reg] = [];
-              }
-              registries[reg].push(JSON.parse(asset.meta.location));
+        const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
+        assetRegistries.forEach((reg: string) => {
+          if (asset.meta.location) {
+            if (!registries[reg]) {
+              registries[reg] = [];
             }
-          });
-        } catch (e) {
-            throw e;
-        }
+            const location = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
+            registries[reg].push(location);
+          }
+        });
       }
       assetBatch.map((asset: Asset) => asset.meta && asset.meta.geometry ? addFeatures(asset) : null)
       assocMetadata.push(...assetBatch.filter(asset => !assetFunctions.shouldIndex(asset, includePrivate)));
@@ -266,7 +252,7 @@ export async function etl(resourceFile: string, resourcePrefix: string | undefin
     console.log("Pre-indexing", resourceFile);
     await buildOnePreindex(resourceFile, additionalFiles, resourcePrefix);
   } else {
-    const prebuildList: any[] = JSON.parse((await fs.promises.readFile('prebuild/prebuild.json')).toString());
+    const prebuildList: any[] = await safeJsonParseFile('prebuild/prebuild.json');
     for (const prebuildItem of prebuildList) {
       if (includePrivate || prebuildItem.public) {
         await buildOnePreindex(prebuildItem.resources, prebuildItem.supplementary || [], prebuildItem.slugPrefix, includePrivate);

@@ -1,6 +1,8 @@
 import fs from "fs";
 import * as pagefind from "pagefind";
-import { slugify, PUBLIC_MODELS, DEFAULT_LANGUAGE, REGISTRIES } from "./utils";
+import { slugify, REGISTRIES } from "./utils";
+import { PUBLIC_MODELS, DEFAULT_LANGUAGE } from "./config";
+import { safeJsonParse, safeJsonParseFile } from './safe-utils';
 
 export async function buildPagefind(files: string[] | null, publicFolder: string, includePrivate: boolean = false) {
     const { index } = await pagefind.createIndex();
@@ -15,11 +17,8 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
       (files) => files.filter(f => f.endsWith('.pi')).map(f => `prebuild/preindex/${f}`)
     );
     const assetMetadata = (await Promise.all(
-      loadedFiles.map(
-        f => fs.promises.readFile(f)
-      ).map(
-        async f => JSON.parse((await f).toString())
-      ))).flat();
+      loadedFiles.map(f => safeJsonParseFile(f))
+    )).flat();
     console.log("loaded", assetMetadata.length);
 
     const language = DEFAULT_LANGUAGE ?? "en";
@@ -31,11 +30,11 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             unmappedModels.add(asset.type);
             continue;
         }
-        const registries = asset.meta.registries ? JSON.parse(asset.meta.registries) : [];
+        const registries = asset.meta.registries ? safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`) : [];
         for (const registry of registries) {
             registriesSet.add(registry);
         }
-        const designations = asset.meta.designations ? JSON.parse(asset.meta.designations) : [];
+        const designations = asset.meta.designations ? safeJsonParse<string[]>(asset.meta.designations, `asset ${asset.slug} designations`) : [];
         // const regcode = registriesToRegcode(registries);
         await index.addCustomRecord({
             url: `/asset/?slug=${asset.meta.slug}`,

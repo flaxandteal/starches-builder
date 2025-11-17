@@ -10,8 +10,10 @@ import { getLocations } from "./locations";
 import { buildPagefind } from "./pagefind";
 import { buildFlatbush } from "./flatbush";
 import { Asset } from "./types";
-import { FOR_ARCHES, registriesToRegcode, CHUNK_SIZE_CHARS, PUBLIC_MODELS } from "./utils";
-import { assetFunctions } from "./assets"; // TODO: make this configurable
+import { registriesToRegcode } from "./utils";
+import { FOR_ARCHES, CHUNK_SIZE_CHARS, PUBLIC_MODELS } from "./config";
+import { safeJsonParseFile, safeJsonParseFileSync, slugify, safeJoinPath } from "./safe-utils";
+import { assetFunctions } from "./assets";
 
 export async function reindex(files: string[] | null, definitionsDir: string, outputDir: string, includePrivate: boolean=false) {
     const { index, assetMetadata }: { index: pagefind.PagefindIndex, assetMetadata: Asset[] } = await buildPagefind(files, outputDir, includePrivate);
@@ -38,10 +40,17 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
                 continue;
             }
             const filePath = `${location}/${filename}`;
-            const file = await fs.promises.readFile(filePath);
-            const graph = JSON.parse(file.toString())["graph"][0];
+            const graphData = await safeJsonParseFile<{ graph: any[] }>(filePath);
 
-            console.log(graph);
+            if (!graphData.graph || !Array.isArray(graphData.graph)) {
+                throw new Error(`Invalid graph file ${filePath}: missing or invalid 'graph' array`);
+            }
+            if (graphData.graph.length !== 1) {
+                throw new Error(`Invalid graph file ${filePath}: expected exactly 1 graph element, found ${graphData.graph.length}`);
+            }
+
+            const graph = graphData.graph[0];
+
             graphs.push({
                 type: type,
                 filepath: filePath,
@@ -163,8 +172,7 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
         const collectionCount = (await Promise.all(models.map((model: ResourceModelWrapper<any>) => {
             return model.getCollections(true).map(async (collectionId: string) => {
                 const collectionFile = `${collections}/${collectionId}.json`;
-                const collectionString = await fs.promises.readFile(collectionFile);
-                const collection = JSON.parse(collectionString.toString());
+                const collection = await safeJsonParseFile(collectionFile);
                 if (FOR_ARCHES && collection.__source) {
                     const collectionSource = collection.__source.collection;
                     xmls.collections.add(collectionSource);
@@ -213,15 +221,16 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
                 rmw.wkrm.modelClassName
             ];
         }));
-        const resources = await Promise.all(assetMetadata.map((asset) => {
-            const resourceFile = `docs/definitions/business_data/${asset.slug}.json`;
+        const resources = await Promise.all(assetMetadata.map(async (asset) => {
+            const businessDataDir = 'docs/definitions/business_data';
+            const resourceFile = safeJoinPath(businessDataDir, `${asset.slug}.json`);
             if (!fs.existsSync(resourceFile)) {
                 console.warn("Missing resource file", resourceFile, "referenced in metadata");
                 return [0, undefined];
             }
-            return fs.promises.readFile(resourceFile).then((content: Buffer<ArrayBufferLike>) => {
-                return [content.length, JSON.parse(content.toString())];
-            });
+            const content = await fs.promises.readFile(resourceFile, 'utf-8');
+            const resource = await safeJsonParseFile(resourceFile);
+            return [content.length, resource];
         }));
         for (const [contentLength, resource] of resources) {
             if (!resource) {
@@ -281,7 +290,9 @@ export async function reindex(files: string[] | null, definitionsDir: string, ou
             const regcode = registriesToRegcode([registry]);
             registries[registry] = regcode;
             const points = filenames.reduce((acc: string[], filename: string) => {
-                return [...acc, ...JSON.parse(fs.readFileSync(`prebuild/fgb/${filename}`).toString())];
+                const filePath = `prebuild/fgb/${filename}`;
+                const filePoints = safeJsonParseFileSync<string[]>(filePath);
+                return [...acc, ...filePoints];
             }, []);
             const geoJson: FeatureCollection = {
               "type": "FeatureCollection",

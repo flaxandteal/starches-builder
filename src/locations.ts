@@ -1,8 +1,11 @@
 import { Asset } from './types.ts';
 import { type FeatureCollection, type Feature } from "geojson";
-import { registriesToRegcode, DEFAULT_LANGUAGE, PUBLIC_MODELS } from "./utils";
+import { registriesToRegcode } from "./utils";
+import { DEFAULT_LANGUAGE } from "./config";
+import { PUBLIC_MODELS } from "./config";
 import { IndexEntry } from "./types";
 import * as pagefind from "pagefind";
+import { safeJsonParse } from './safe-utils';
 
 
 export async function getLocations(index: pagefind.PagefindIndex, assetMetadata: Asset[], includePrivate: boolean=false): Promise<[IndexEntry, Feature][]> {
@@ -11,7 +14,8 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
         throw Error(catalogue.errors);
     }
     const hashes = catalogue.entries.reduce((agg: {[key: string]: string}, [hash, entry]: [string, string]) => {
-        const slug = JSON.parse(entry).meta.slug;
+        const entryData = safeJsonParse<{ meta?: { slug?: string } }>(entry, `pagefind entry with hash ${hash}`);
+        const slug = entryData.meta?.slug;
         if (slug) {
             agg[slug] = hash;
         }
@@ -21,10 +25,9 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
         /// RMV
         if (asset.meta && asset.meta.location && (includePrivate || PUBLIC_MODELS.includes(asset.type))) {
             {
-                const loc = JSON.parse(asset.meta.location);
-                const registries = asset.meta.registries ? JSON.parse(asset.meta.registries) : [];
-                console.log('registries', registries);
-                const designations = asset.meta.designations ? JSON.parse(asset.meta.designations) : [];
+                const loc = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
+                const registries = asset.meta.registries ? safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`) : [];
+                const designations = asset.meta.designations ? safeJsonParse<string[]>(asset.meta.designations, `asset ${asset.slug} designations`) : [];
                 const regcode = registriesToRegcode(registries);
                 const language = DEFAULT_LANGUAGE ?? "en";
                 const hash = hashes[asset.meta.slug];
