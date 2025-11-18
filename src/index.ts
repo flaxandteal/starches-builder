@@ -5,6 +5,19 @@ import { hideBin } from 'yargs/helpers';
 import { cli_index, cli_etl } from './cli/index.ts';
 import { init } from './init.ts';
 
+// Global error handlers to ensure stack traces are always printed
+process.on('uncaughtException', (error) => {
+  console.error('\nUncaught Exception:');
+  console.error(error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('\nUnhandled Promise Rejection:');
+  console.error(reason);
+  process.exit(1);
+});
+
 yargs(hideBin(process.argv))
   .command("init", "initialize a new starches-builder project", function (yargs) {
     return yargs
@@ -52,10 +65,8 @@ yargs(hideBin(process.argv))
   .fail((msg, err, yargs) => {
     if (err) {
       console.error('\nError:', err.message);
-      if (process.env.DEBUG) {
-        console.error('\nStack trace:');
-        console.error(err.stack);
-      }
+      console.error('\nStack trace:');
+      console.error(err.stack);
     } else if (msg) {
       console.error('\n' + msg);
       console.error('\nUse --help for usage information');
