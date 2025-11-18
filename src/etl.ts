@@ -9,33 +9,44 @@ import { Asset } from './types.ts';
 import { slugify } from './utils.ts';
 import { assetFunctions } from './assets';
 import { safeJsonParse, safeJsonParseFile, safeJoinPath } from './safe-utils';
+import type { GraphConfiguration } from './types';
 
 const PUBLIC_FOLDER = 'docs';
 
-await assetFunctions.initialize();
-if (!assetFunctions.graphs) {
-  throw Error("You need to set up prebuild/graphs.json first");
-}
-if (!assetFunctions.config) {
-  throw Error("You need to set up prebuild/prebuild.json first");
-}
-const MODEL_FILES = assetFunctions.graphs.models;
-if (assetFunctions.config.customDatatypes) {
-  for (const [datatype, substitute] of Object.entries(assetFunctions.config.customDatatypes)) {
-    viewModels.CUSTOM_DATATYPES.set(datatype, substitute);
+/**
+ * Initialize asset functions and validate configuration
+ */
+async function ensureAssetFunctionsInitialized(): Promise<GraphConfiguration> {
+  if (!assetFunctions.config || !assetFunctions.graphs) {
+    await assetFunctions.initialize();
   }
+
+  if (!assetFunctions.graphs) {
+    throw Error("You need to set up prebuild/graphs.json first");
+  }
+  if (!assetFunctions.config) {
+    throw Error("You need to set up prebuild/prebuild.json first");
+  }
+
+  if (assetFunctions.config.customDatatypes) {
+    for (const [datatype, substitute] of Object.entries(assetFunctions.config.customDatatypes)) {
+      viewModels.CUSTOM_DATATYPES.set(datatype, substitute);
+    }
+  }
+
+  return assetFunctions.graphs;
 }
 
-function initAlizarin(resourcesFiles: string[] | null) {
+function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfiguration['models']) {
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
-        graphIdToGraphFile: ((graphId: string) => MODEL_FILES[graphId] && `prebuild/graphs/resource_models/${MODEL_FILES[graphId].name}`),
+        graphIdToGraphFile: ((graphId: string) => modelFiles[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
         graphToGraphFile: ((graph: staticTypes.StaticGraphMeta) => graph.name && `prebuild/graphs/resource_models/${graph.name}.json`),
         graphIdToResourcesFiles: ((graphId: string) => {
           // If this is not a heritage, or we have been given no specific files, get the whole resource model.
           let files: string[] = [];
           if ((graphId !== '076f9381-7b00-11e9-8d6b-80000b44d1d9' && graphId !== '49bac32e-5464-11e9-a6e2-000d3ab1e588') || resourcesFiles === null) {
-            files = [...files, ...Object.values(MODEL_FILES[graphId].resources).map((resourceFile: string) => `prebuild/business_data/${resourceFile}`)];
+            files = [...files, ...Object.values(modelFiles[graphId].resources).map((resourceFile: string) => `prebuild/business_data/${resourceFile}`)];
           }
           if (resourcesFiles !== null) {
             files = [...files, ...resourcesFiles];
@@ -207,6 +218,8 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
 }
 
 async function buildOnePreindex(resourceFile: string, additionalFiles: string[], resourcePrefix: string, includePrivate: boolean=false) {
+  const graphs = await ensureAssetFunctionsInitialized();
+
   let resourceFiles = [];
   if (resourceFile.indexOf('%') !== -1) {
     let i = 0;
@@ -227,7 +240,7 @@ async function buildOnePreindex(resourceFile: string, additionalFiles: string[],
   }
   resourceFiles = [...resourceFiles, ...additionalFiles];
   console.log("Resource files:", resourceFiles);
-  const gm = await initAlizarin(resourceFile ? resourceFiles : null);
+  const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models);
   await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate);
 }
 

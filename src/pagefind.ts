@@ -1,3 +1,4 @@
+import "../scripts/setup-pagefind-env.js";
 import fs from "fs";
 import * as pagefind from "pagefind";
 import { slugify, REGISTRIES } from "./utils";
