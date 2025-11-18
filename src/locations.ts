@@ -31,6 +31,10 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
                 const regcode = registriesToRegcode(registries);
                 const language = DEFAULT_LANGUAGE ?? "en";
                 const hash = hashes[asset.meta.slug];
+                if (!hash) {
+                    console.warn(`Asset ${asset.meta.slug} not found in pagefind index, skipping location`);
+                    return undefined;
+                }
                 if (Array.isArray(loc)) {
                   const feature: Feature = {
                     id: hash,
