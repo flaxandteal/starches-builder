@@ -3,3 +3,4 @@ dist
 target
 *.node
 Cargo.lock
+vendor/
