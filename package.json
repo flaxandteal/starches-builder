@@ -74,7 +74,7 @@
     "typescript-eslint": "^8.29.0"
   },
   "dependencies": {
-    "alizarin": "github:flaxandteal/alizarin#v0.2.0-alpha.0",
+    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.0/alizarin-0.2.1-alpha.0.tgz",
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",
     "geojson": "^0.5.0",
