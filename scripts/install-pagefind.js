@@ -18,7 +18,7 @@ const BIN_DIR = join(VENDOR_DIR, 'bin');
 // GitHub release configuration
 const GITHUB_OWNER = process.env.PAGEFIND_GITHUB_OWNER || 'flaxandteal';
 const GITHUB_REPO = process.env.PAGEFIND_GITHUB_REPO || 'pagefind';
-const RELEASE_TAG = process.env.PAGEFIND_RELEASE_TAG || 'v1.3.0-map-compatibility'; // Update to match your release tag
+const RELEASE_TAG = process.env.PAGEFIND_RELEASE_TAG || 'v1.3.0-map-compatibility.5'; // Update to match your release tag
 
 /**
  * Detect the current platform and return the appropriate target triple
