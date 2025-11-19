@@ -68,6 +68,7 @@
     "eslint": "^9.24.0",
     "jest": "^30.0.5",
     "prettier": "^3.5.3",
+    "ts-jest": "^29.4.1",
     "tsup": "^8.0.1",
     "tsx": "^4.7.0",
     "typescript": "^5.9.2",
@@ -79,7 +80,6 @@
     "flatgeobuf": "^4.1.1",
     "geojson": "^0.5.0",
     "pagefind": "https://github.com/flaxandteal/pagefind/releases/download/v1.3.0-map-compatibility.5/pagefind-node-wrapper-v1.3.0-map-compatibility.5.tar.gz",
-    "tar-stream": "^3.1.7",
-    "ts-jest": "^29.4.1"
+    "tar-stream": "^3.1.7"
   }
 }
