@@ -38,6 +38,7 @@ async function ensureAssetFunctionsInitialized(): Promise<GraphConfiguration> {
 }
 
 function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfiguration['models']) {
+    console.log(modelFiles);
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
         graphIdToGraphFile: ((graphId: string) => modelFiles[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
