@@ -3,9 +3,9 @@
 import os from 'os';
 
 // TODO: test on windows.
-const glob = os.machine()
-  + "-*-"
-  + process.platform.replace('win32', 'windows')
+const glob = process.platform
+  + "-"
+  + process.arch
   + "*";
 
 console.log(glob)
