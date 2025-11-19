@@ -38,7 +38,6 @@ async function ensureAssetFunctionsInitialized(): Promise<GraphConfiguration> {
 }
 
 function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfiguration['models']) {
-    console.log(modelFiles);
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
         graphIdToGraphFile: ((graphId: string) => modelFiles[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
@@ -85,6 +84,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
   //   [await asset.monument_names[0].monument_name, (await asset.monument_names[0]).__parentPseudo.tile.sortorder],
   //   [await asset.monument_names[1].monument_name, (await asset.monument_names[1]).__parentPseudo.tile.sortorder],
   // ].sort((a, b) => b[1] - a[1]).map(a => a[0]);
+  console.log(400);
   const staticAsset = await asset.forJson(true);
   const meta = await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
   const replacer = function (_: string, value: any) {

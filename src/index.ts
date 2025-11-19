@@ -62,16 +62,5 @@ yargs(hideBin(process.argv))
   }, (argv) => {
     return cli_etl(argv.file as string, argv.prefix as string);
   })
-  .fail((msg, err, yargs) => {
-    if (err) {
-      console.error('\nError:', err.message);
-      console.error('\nStack trace:');
-      console.error(err.stack);
-    } else if (msg) {
-      console.error('\n' + msg);
-      console.error('\nUse --help for usage information');
-    }
-    process.exit(1);
-  })
   .help()
   .parseAsync()
