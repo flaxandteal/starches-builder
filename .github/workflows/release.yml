@@ -1,0 +1,159 @@
+name: Release
+
+env:
+  DEBUG: napi:*
+  APP_NAME: starches-builder
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: npm run build:native
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: npm run build:native -- --target aarch64-apple-darwin
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: npm run build:native
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: npm run build:native -- --target aarch64-unknown-linux-gnu
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: npm run build:native -- --target x86_64-unknown-linux-musl
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            build: npm run build:native -- --target aarch64-unknown-linux-musl
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: npm run build:native
+
+    name: Build ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            target/
+          key: ${{ matrix.settings.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup toolchain (Linux)
+        if: contains(matrix.settings.target, 'linux')
+        run: |
+          sudo apt-get update
+          if [[ "${{ matrix.settings.target }}" == *"musl"* ]]; then
+            sudo apt-get install -y musl-tools
+          fi
+          if [[ "${{ matrix.settings.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
+          if [[ "${{ matrix.settings.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build native module
+        run: ${{ matrix.settings.build }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Build TypeScript
+        run: npm run tsc
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: '*.node'
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build TypeScript
+        run: npm run tsc
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move binaries to root
+        run: |
+          for dir in artifacts/bindings-*; do
+            if [ -d "$dir" ]; then
+              cp "$dir"/*.node . || true
+            fi
+          done
+          ls -la *.node
+
+      - name: Create tarball
+        run: |
+          mkdir -p package
+          cp -r dist package/
+          cp -r scripts package/
+          cp -r vendor package/ || true
+          cp *.node package/ || true
+          cp package.json package/
+          cp README.md package/ || true
+          cp LICENSE package/ || true
+          tar czf starches-builder-v${{ steps.version.outputs.VERSION }}.tar.gz -C package .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          files: |
+            starches-builder-v${{ steps.version.outputs.VERSION }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

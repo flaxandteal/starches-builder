@@ -43,7 +43,6 @@
     "starches-builder": "./dist/index.js"
   },
   "scripts": {
-    "prepare": "npm run build",
     "postinstall": "node scripts/install-pagefind.js && npm run link:native",
     "tsc": "tsc -p tsconfig.json",
     "dev": "tsx ./src/index.ts",
