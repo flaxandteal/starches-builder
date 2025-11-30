@@ -1,0 +1,106 @@
+import { getValueFromPath } from "./utils";
+import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
+import type { PrebuildConfiguration } from "./types";
+import type { SlugGenerator } from "./slug-generator";
+
+export class MetadataExtractor {
+  config?: PrebuildConfiguration;
+  slugGenerator: SlugGenerator;
+
+  constructor(slugGenerator: SlugGenerator) {
+    this.slugGenerator = slugGenerator;
+  }
+
+  setConfig(config: PrebuildConfiguration) {
+    this.config = config;
+  }
+
+  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean): Promise<Asset> {
+    /**
+     * getMeta will use the staticAsset where possible, but that _can_ be dynamic (i.e. raw asset) if you have
+     * not already serialized.
+     */
+    const modelType = asset.__.wkrm.modelClassName;
+    console.log("DEBUG UNCONDITIONAL: getMeta called, modelType =", modelType);
+    let displayName: string = "(unknown)"; // TODO: translate
+    if (await asset.$?.getName) {
+      displayName = await asset.$.getName();
+    }
+
+    const geometryPath = this.config?.paths?.["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
+
+    // Debug: Log first call for HeritageAsset
+    if (modelType === "HeritageAsset") {
+      console.log("DEBUG: getMeta called for HeritageAsset");
+      console.log("DEBUG: geometryPath =", geometryPath);
+      console.log("DEBUG: staticAsset type =", typeof staticAsset);
+      console.log("DEBUG: staticAsset keys =", Object.keys(staticAsset || {}));
+    }
+
+    let geometry = await getValueFromPath(
+      staticAsset,
+      geometryPath
+    );
+
+    // Debug: Check geometry result
+    if (modelType === "HeritageAsset") {
+      console.log("DEBUG: geometry result =", geometry ? "HAS VALUE" : "NULL/UNDEFINED");
+      if (!geometry) {
+        console.log("DEBUG: staticAsset.location_data =", staticAsset?.location_data !== undefined ? "exists" : "undefined");
+        if (staticAsset?.location_data) {
+          console.log("DEBUG: location_data type =", typeof staticAsset.location_data);
+          console.log("DEBUG: location_data.geometry =", staticAsset?.location_data?.geometry !== undefined ? "exists" : "undefined");
+        }
+      }
+    }
+    let location = await getValueFromPath(
+      staticAsset,
+      this.config?.paths?.["location"] ?? DEFAULT_PREBUILD_PATHS.location
+    ) || geometry;
+
+    if (location && location["features"]) {
+      const polygon = location["features"][0]["geometry"]["coordinates"];
+      if (Array.isArray(polygon[0])) {
+        let polygons = polygon[0];
+        if ((Array.isArray(polygons[0][0]))) {
+          polygons = polygons.flat();
+        }
+        const centre = polygons.reduce((c: Array<number>, p: Array<number>) => {
+          c[0] += p[0] / polygons.length;
+          c[1] += p[1] / polygons.length;
+          return c;
+        }, [0, 0]);
+        location = {
+            "features": [{
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": centre
+                }
+            }]
+        }
+      }
+    }
+    if (location && location["features"]) {
+      location = location["features"][0]["geometry"]["coordinates"];
+    } else {
+      location = null;
+    }
+
+    const slug = await this.slugGenerator.toSlug(displayName, asset, prefix);
+    const graphId = asset.__.wkrm.graphId;
+    const meta = new Asset(
+      staticAsset.id,
+      graphId,
+      geometry,
+      location,
+      displayName,
+      slug,
+      "",
+      modelType,
+      [] // TODO: this should say ['public'] if we know it is
+    );
+    meta.meta["registries"] = "[]";
+    meta.content = displayName;
+    return meta;
+  }
+}

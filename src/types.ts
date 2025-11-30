@@ -2,6 +2,7 @@ interface PrebuildSource {
   resources: string
   public: boolean
   slugPrefix: string
+  searchFor?: string[]
   [key: string]: any
 }
 
@@ -42,6 +43,7 @@ class IndexEntry {
 
 interface AssetMetadata {
   resourceinstanceid: string
+  graphid: string
   geometry?: string
   location?: string
   title: string
@@ -58,9 +60,10 @@ class Asset {
   slug: string;
   type: string;
 
-  constructor(resourceinstanceid: string, geometry: object, location: object, title: string, slug: string, content: string, type: string, scopes: string[]) {
+  constructor(resourceinstanceid: string, graphid: string, geometry: object, location: object, title: string, slug: string, content: string, type: string, scopes: string[]) {
     this.meta = {
       resourceinstanceid,
+      graphid,
       geometry: geometry ? JSON.stringify(geometry) : undefined,
       location: location ? JSON.stringify(location) : undefined,
       title,

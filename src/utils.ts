@@ -1,5 +1,8 @@
+import * as path from 'path';
+import * as fs from "fs";
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { validatePathWithinBase } from './safe-utils';
 
 export const REGISTRIES: string[] = [];
 
@@ -14,55 +17,60 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 export const STARCHES_UTILS_BIN = `${SCRIPT_DIR}/../starches-rs`;
 
 /**
- * @deprecated Use slugify from safe-utils.ts instead
- * Kept for backward compatibility only
+ * Get all matching files for a relative regex.
  */
-export function slugify(name: string) {
-  // Safer implementation with better character handling
-  if (!name || typeof name !== 'string') {
-    throw new Error(`Invalid slug input: ${name}`);
+export async function *getFilesForRegex(dir: string, regex: string): AsyncGenerator<string> {
+  if (!regex.startsWith(dir)) {
+    console.warn(`The directory ${dir} does not appear to contain ${regex}`);
+    return;
   }
-
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 20);
+  async function *walk(subdir: string): AsyncGenerator<string> {
+    for await (const entry of await fs.promises.opendir(subdir)) {
+      const entryname = path.join(subdir, entry.name);
+      if (entry.isDirectory()) yield* walk(entryname);
+      else if (entry.isFile() && entryname.match(regex)) {
+        if (validatePathWithinBase(entryname, dir)) {
+          console.debug("Found", entryname);
+          yield entryname;
+        } else {
+          console.warn(`Found ${entryname} outside ${dir}, skipping`);
+        }
+      }
+    }
+  }
+  yield* walk(dir);
 }
 
 export function registriesToRegcode(registries: string[]) {
-    return registries.map((r: string) => REGISTRIES.indexOf(slugify(r))).reduce((acc: number, n: number) => {
-        if (n >= 0) {
-            acc += 2**n;
-        }
-        return acc;
-    }, 0);
+  return registries.map((r: string) => REGISTRIES.indexOf(slugify(r))).reduce((acc: number, n: number) => {
+    if (n >= 0) {
+      acc += 2**n;
+    }
+    return acc;
+  }, 0);
 }
 
 export async function getValueFromPath(asset: any, path: string): Promise<any> {
-    const segments = path.split(".");
-    async function get(value: any, key: string) {
-        if (value.__has) {
-            if (!await value.__has(key)) {
-                return undefined;
-            }
-            return value[key];
-        }
-        return value[key];
+  const segments = path.split(".");
+  async function get(value: any, key: string) {
+    if (value.__has) {
+      if (!await value.__has(key)) {
+        return undefined;
+      }
+      return value[key];
     }
-    if (segments[0] == "") {
-        // If it starts with a dot
-        segments.shift();
-    }
-    let headValue = asset;
-    let segment: string | undefined = segments.shift();
-    while (segment !== undefined && headValue) {
-        // TODO: this is only necessary to await at every step because we do not know whether the key is valid
-        headValue = await get(headValue, segment);
-        segment = segments.shift();
-    }
-    return segments.length ? undefined : headValue;
+    return value[key];
+  }
+  if (segments[0] == "") {
+    // If it starts with a dot
+    segments.shift();
+  }
+  let headValue = asset;
+  let segment: string | undefined = segments.shift();
+  while (segment !== undefined && headValue) {
+    // TODO: this is only necessary to await at every step because we do not know whether the key is valid
+    headValue = await get(headValue, segment);
+    segment = segments.shift();
+  }
+  return segments.length ? undefined : headValue;
 }

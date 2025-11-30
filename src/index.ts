@@ -26,8 +26,8 @@ yargs(hideBin(process.argv))
         description: "target directory for initialization (defaults to current directory)",
         demandOption: false
       })
-  }, (argv) => {
-    return init(argv.dir as string);
+  }, async (argv) => {
+    await init(argv.dir as string);
   })
   .command(["index", "$0"], "build Alizarin-compatible JSON files into indexes", function (yargs) {
     return yargs
@@ -46,8 +46,8 @@ yargs(hideBin(process.argv))
         description: "output directory for the site (usu. public or docs)",
         demandOption: true
       })
-  }, (argv) => {
-    return cli_index(argv.definitions as string, argv.preindex as string, argv.site as string);
+  }, async (argv) => {
+    await cli_index(argv.definitions as string, argv.preindex as string, argv.site as string, argv.includePrivate as boolean);
   })
   .command(["etl"], "build Alizarin-compatible JSON from Arches data", function (yargs) {
     return yargs
@@ -59,8 +59,24 @@ yargs(hideBin(process.argv))
         description: "prefix to use for this preindex set",
         demandOption: true
       })
-  }, (argv) => {
-    return cli_etl(argv.file as string, argv.prefix as string);
+      .option("include-private", {
+        description: "include private (non-public) nodegroups and entries",
+      })
+      .option("tui", {
+        description: "enable split-view TUI with progress bars",
+        type: "boolean",
+        default: false
+      })
+  }, async (argv) => {
+    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean);
   })
   .help()
+  .fail((msg, err, yargs) => {
+    if (err) {
+      throw err;
+    }
+    console.error(msg);
+    yargs.showHelp();
+    process.exit(1);
+  })
   .parseAsync()

@@ -3,7 +3,7 @@ import path from "path";
 import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
-import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin';
+import { WKRM, ResourceModelWrapper, slugify, staticTypes } from 'alizarin';
 
 import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
@@ -12,7 +12,7 @@ import { buildFlatbush } from "./flatbush";
 import { Asset } from "./types";
 import { registriesToRegcode } from "./utils";
 import { FOR_ARCHES, CHUNK_SIZE_CHARS, PUBLIC_MODELS } from "./config";
-import { safeJsonParseFile, safeJsonParseFileSync, slugify, safeJoinPath } from "./safe-utils";
+import { safeJsonParseFile, safeJsonParseFileSync, safeJoinPath } from "./safe-utils";
 import { assetFunctions } from "./assets";
 
 interface GraphInfo {
@@ -70,36 +70,40 @@ async function loadGraphsFromDefinitions(definitionsDir: string, outputDir: stri
 /**
  * Build metadata object from graph
  */
-function buildGraphMetadata(graph: any): staticTypes.StaticGraphMeta {
-    return {
-        author: graph["author"],
-        cards: graph["cards"].length,
-        cards_x_nodes_x_widgets: graph["cards_x_nodes_x_widgets"].length,
-        color: graph["color"],
-        config: graph["config"],
-        deploymentdate: graph["deploymentdate"],
-        deploymentfile: graph["deploymentfile"],
-        functions_x_graphs: (graph["functions_x_graphs"] ?? []).length,
-        description: graph["description"],
-        edges: graph["edges"].length,
-        graphid: graph["graphid"],
-        iconclass: graph["iconclass"],
-        is_editable: graph["is_editable"],
-        isresource: graph["isresource"],
-        jsonldcontext: graph["jsonldcontext"],
-        name: graph["name"],
-        nodegroups: graph["nodegroups"].length,
-        nodes: graph["nodes"].length,
-        ontology_id: graph["ontology_id"],
-        publication: graph["publication"],
-        relatable_resource_model_ids: graph["relatable_resource_model_ids"],
-        resource_2_resource_constraints: graph["resource_2_resource_constraints"],
-        root: graph["root"],
-        slug: graph["slug"],
-        subtitle: graph["subtitle"],
-        template_id: graph["template_id"],
-        version: graph["version"]
-    };
+function buildGraphMetadata(graph: staticTypes.StaticGraph): staticTypes.StaticGraphMeta {
+    // Convert WASM object to plain JS object for property access
+    const g = graph.toJSON();
+    console.log(g);
+    return new staticTypes.StaticGraphMeta({
+        author: g["author"],
+        cards: (g["cards"] ?? []).length,
+        cards_x_nodes_x_widgets: (g["cards_x_nodes_x_widgets"] ?? []).length,
+        color: g["color"],
+        config: g["config"],
+        deploymentdate: g["deploymentdate"],
+        deploymentfile: g["deploymentfile"],
+        functions_x_graphs: (g["functions_x_graphs"] ?? []).length,
+        description: g["description"],
+        edges: (g["edges"] ?? []).length,
+        graphid: g["graphid"],
+        iconclass: g["iconclass"],
+        is_editable: g["is_editable"],
+        isresource: g["isresource"],
+        jsonldcontext: g["jsonldcontext"],
+        name: g["name"],
+        nodegroups: (g["nodegroups"] ?? []).length,
+        nodes: (g["nodes"] ?? []).length,
+        ontology_id: g["ontology_id"],
+        // publication: g["publication"], -- TODO: sort out numeric user id
+        relatable_resource_model_ids: g["relatable_resource_model_ids"] ?? [],
+        resource_2_resource_constraints: g["resource_2_resource_constraints"],
+        // Skip root - it's a complex nested object not needed for WKRM metadata
+        slug: g["slug"],
+        subtitle: g["subtitle"],
+        template_id: g["template_id"],
+        // version may be a number in the source JSON, but Rust expects a string
+        version: g["version"] != null ? String(g["version"]) : undefined
+    });
 }
 
 /**
@@ -123,7 +127,10 @@ async function processGraphs(
     for (const {type, filepath, graph, location} of graphs) {
         const target = `${destination}/graphs/${path.basename(location)}`;
         const filename = path.basename(filepath);
-        const wkrm = new WKRM(graph);
+        // Build metadata first - WKRM expects StaticGraphMeta (with counts), not full StaticGraph (with arrays)
+        const meta = buildGraphMetadata(graph);
+        // Ensure clean plain object for WASM deserialization
+        const wkrm = new WKRM(meta);
         const rmw = new ResourceModelWrapper(wkrm, graph, undefined);
         let publicationId;
 
@@ -151,24 +158,22 @@ async function processGraphs(
             console.warn("Building NON-PUBLIC reindex so including", type, wkrm.modelClassName);
         }
 
-        const meta: staticTypes.StaticGraphMeta = buildGraphMetadata(graph);
+        // if (includePrivate || type == "branches") {
+        //     // This does not require node filtering.
+        // } else {
+        //     const ngs = assetFunctions.getPermittedNodegroups(wkrm.modelClassName);
+        //     if (!ngs) {
+        //         console.warn("Not exporting", wkrm.modelClassName, "as no nodes available");
+        //         continue;
+        //     }
+        //     rmw.setPermittedNodegroups(ngs);
+        // }
 
-        if (includePrivate || type == "branches") {
-            // This does not require node filtering.
-        } else {
-            const ngs = assetFunctions.getPermittedNodegroups(wkrm.modelClassName);
-            if (!ngs) {
-                console.warn("Not exporting", wkrm.modelClassName, "as no nodes available");
-                continue;
-            }
-            rmw.setPermittedNodegroups(ngs);
-        }
-
-        rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
+        // rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
         const prunedGraph = rmw.graph.copy();
         console.log("Loaded graph", target, filename);
         await fs.promises.writeFile(`${target}/${filename}`, JSON.stringify({
-            graph: [prunedGraph],
+            graph: [prunedGraph.toJSON()],
             __scope: ['public']
         }, undefined, 2));
 
@@ -247,6 +252,66 @@ async function copyReferenceData(
 }
 
 /**
+ * Generate resource index files (_{GRAPHID}.json) for each graph
+ * These contain name and resourceinstanceid for each resource
+ */
+async function generateResourceIndexes(
+    assetMetadata: Asset[],
+    models: ResourceModelWrapper<any>[],
+    outputDir: string
+): Promise<void> {
+    await fs.promises.mkdir(`${outputDir}/definitions/business_data`, {"recursive": true});
+
+    console.log('nidexes', assetMetadata.length);
+    // Track resource summaries per graph for the index file
+    const graphResourceSummaries: Map<string, Array<{name: string, resourceinstanceid: string}>> = new Map();
+    const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphid));
+
+    await Promise.all(assetMetadata.map(async (asset) => {
+        const businessDataDir = 'docs/definitions/business_data';
+        const resourceFile = safeJoinPath(businessDataDir, `${asset.slug}.json`);
+        if (!fs.existsSync(resourceFile)) {
+            return;
+        }
+
+        // Get graphId from asset metadata, or fall back to reading from business data file
+        let graphId = asset.meta.graphid;
+        if (!graphId) {
+            const resource = await safeJsonParseFile<any>(resourceFile);
+            graphId = resource?.resourceinstance?.graph_id || "";
+        }
+
+        // Only include resources for models we're processing
+        if (!modelGraphIds.has(graphId)) {
+            return;
+        }
+
+        if (!graphResourceSummaries.has(graphId)) {
+            graphResourceSummaries.set(graphId, []);
+        }
+        graphResourceSummaries.get(graphId)!.push({
+            name: asset.meta.title || '',
+            resourceinstanceid: asset.meta.resourceinstanceid
+        });
+    }));
+
+    // Write index files for each graph (_{GRAPHID}.json)
+    await Promise.all([...graphResourceSummaries].map(([graphId, summaries]) => {
+        const indexData = {
+            business_data: {
+                resources: summaries
+            }
+        };
+        return fs.promises.writeFile(
+            `${outputDir}/definitions/business_data/_${graphId}.json`,
+            JSON.stringify(indexData, null, 2)
+        );
+    }));
+
+    console.log(`Generated ${graphResourceSummaries.size} resource index files`);
+}
+
+/**
  * Generate Arches business data files (chunked by model)
  */
 async function generateArchesBusinessData(
@@ -278,18 +343,21 @@ async function generateArchesBusinessData(
         if (!resource) {
             continue;
         }
-        const end = (modelFileLengths.get(resource.resourceinstance.graph_id) || 0) + (contentLength as number);
-        modelFileLengths.set(resource.resourceinstance.graph_id, end);
+        const graphId = resource.resourceinstance.graph_id;
+        const end = (modelFileLengths.get(graphId) || 0) + (contentLength as number);
+        modelFileLengths.set(graphId, end);
         const chunk = Math.floor(end / CHUNK_SIZE_CHARS);
-        let resourceFile = modelBusinessData.get(`${resource.resourceinstance.graph_id}:${chunk}`);
+        let resourceFile = modelBusinessData.get(`${graphId}:${chunk}`);
         if (resourceFile === undefined) {
             resourceFile = {
                 business_data: {resources: []}
             }
-            modelBusinessData.set(`${resource.resourceinstance.graph_id}:${chunk}`, resourceFile);
+            modelBusinessData.set(`${graphId}:${chunk}`, resourceFile);
         }
         resourceFile.business_data.resources.push(resource);
     }
+
+    // Write chunked business data files
     await Promise.all([...modelBusinessData].map(([code, businessData]) => {
         const [graphId, chunk] = code.split(':');
         if (businessData.business_data.resources.length === 0) {
@@ -415,12 +483,17 @@ export async function reindex(
 
     // 5. Copy reference data
     await copyReferenceData(models, outputDir, includePrivate);
+    console.log(models);
 
-    // 6. Generate format-specific outputs
+    // 6. Generate resource index files (always, regardless of mode)
+    await generateResourceIndexes(assetMetadata, models, outputDir);
+
+    // 7. Generate format-specific outputs
     if (FOR_ARCHES) {
         await generateArchesBusinessData(assetMetadata, models, outputDir);
         checkMissingBranches(branches, branchesFound);
     } else {
         await generateFlatGeoBuf(outputDir, locations);
     }
+    console.log(includePrivate);
 }

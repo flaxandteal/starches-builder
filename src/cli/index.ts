@@ -3,7 +3,7 @@ import path from "path";
 import { reindex } from "../reindex.ts";
 import { etl } from "../etl.ts";
 
-export async function cli_index(definitions: string, preIndexDirectory: string, site: string) {
+export async function cli_index(definitions: string, preIndexDirectory: string, site: string, includePrivate: boolean) {
   const preIndexFiles: string[] = [];
 
   const walk = async (dir: string): Promise<void> => {
@@ -23,9 +23,9 @@ export async function cli_index(definitions: string, preIndexDirectory: string, 
   };
 
   await walk(preIndexDirectory);
-  return reindex(preIndexFiles, definitions, site);
+  return reindex(preIndexFiles, definitions, site, includePrivate);
 }
 
-export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined) {
-  return etl(resourceFile, resourcePrefix);
+export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false) {
+  return etl(resourceFile, resourcePrefix, includePrivate, useTui);
 }

@@ -3,13 +3,14 @@ import * as fs from "fs";
 import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
-import { staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels } from 'alizarin';
+import { slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels } from 'alizarin';
 
 import { Asset } from './types.ts';
-import { slugify } from './utils.ts';
+import { getFilesForRegex } from './utils.ts';
 import { assetFunctions } from './assets';
 import { safeJsonParse, safeJsonParseFile, safeJoinPath } from './safe-utils';
-import type { GraphConfiguration } from './types';
+import type { GraphConfiguration, PrebuildSource } from './types';
+import { getProgressDisplay, enableProgress } from './progress.ts';
 
 const PUBLIC_FOLDER = 'docs';
 
@@ -37,21 +38,27 @@ async function ensureAssetFunctionsInitialized(): Promise<GraphConfiguration> {
   return assetFunctions.graphs;
 }
 
-function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfiguration['models']) {
+async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfiguration['models']) {
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
-        graphIdToGraphFile: ((graphId: string) => modelFiles[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
+        graphIdToGraphFile: ((graphId: string) => modelFiles?.[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
         graphToGraphFile: ((graph: staticTypes.StaticGraphMeta) => graph.name && `prebuild/graphs/resource_models/${graph.name}.json`),
-        graphIdToResourcesFiles: ((graphId: string) => {
-          // If this is not a heritage, or we have been given no specific files, get the whole resource model.
-          let files: string[] = [];
-          if ((graphId !== '076f9381-7b00-11e9-8d6b-80000b44d1d9' && graphId !== '49bac32e-5464-11e9-a6e2-000d3ab1e588') || resourcesFiles === null) {
-            files = [...files, ...Object.values(modelFiles[graphId].resources).map((resourceFile: string) => `prebuild/business_data/${resourceFile}`)];
+        graphIdToResourcesFiles: (async function* (graphId: string) {
+          const sources = assetFunctions.config?.sources;
+          if (sources) {
+            for (const source of sources) {
+              if (source.searchFor && source.searchFor.includes(graphId)) {
+                for await (const match of await getFilesForRegex("prebuild/business_data", source.resources)) {
+                  yield match;
+                }
+              }
+            }
           }
-          if (resourcesFiles !== null) {
-            files = [...files, ...resourcesFiles];
+          if (resourcesFiles) {
+            for (const r of resourcesFiles) {
+              yield r;
+            }
           }
-          return files;
         }),
         // resourceIdToFile: ((resourceId: string) => `public/resources/${resourceId}.json`),
         // RMV TODO: move collections and graphs to static
@@ -66,15 +73,22 @@ function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphConfigur
 }
 
 let warned = false;
+let processedCount = 0;
 async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false): Promise<Asset | null> {
+  processedCount++;
+  const myCount = processedCount;
+  console.log(`DEBUG processAsset START #${myCount}`);
   const asset = await assetPromise;
+  console.log(`DEBUG processAsset #${myCount} got asset, modelClassName=${asset.__.wkrm.modelClassName}`);
   if (asset.__.wkrm.modelClassName !== "HeritageAsset") {
     if (!warned) {
       console.warn("No soft deletion, assuming all present", asset.__.wkrm.modelClassName)
     }
     warned = true;
   } else {
+    console.log(`DEBUG processAsset #${myCount} checking soft_deleted`);
     const sd = await asset.soft_deleted;
+    console.log(`DEBUG processAsset #${myCount} soft_deleted=${sd}`);
     if (sd) {
       return null;
     }
@@ -84,8 +98,9 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
   //   [await asset.monument_names[0].monument_name, (await asset.monument_names[0]).__parentPseudo.tile.sortorder],
   //   [await asset.monument_names[1].monument_name, (await asset.monument_names[1]).__parentPseudo.tile.sortorder],
   // ].sort((a, b) => b[1] - a[1]).map(a => a[0]);
-  console.log(400);
+  console.log(`DEBUG processAsset #${myCount} ABOUT TO CALL forJson`);
   const staticAsset = await asset.forJson(true);
+  console.log(`DEBUG processAsset #${myCount} forJson complete, calling getMeta, staticAsset.root keys:`, Object.keys(staticAsset?.root || {}));
   const meta = await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
   const replacer = function (_: string, value: any) {
     if (value instanceof Map) {
@@ -142,26 +157,30 @@ function extractFeatures(geoJsonString: string): Feature[] {
 }
 
 async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false) {
-    await graphManager.initialize();
-    const Registry = await graphManager.get("Registry");
+    await graphManager.initialize({ graphs: null, defaultAllowAllNodegroups: includePrivate });
+    // Pass includePrivate to get() so the model is created with correct default permissions
+    const Registry = await graphManager.get("Registry", includePrivate);
     await Registry.all();
-    console.log("loading for preindex", resourceFile);
+    log("Loading for preindex: " + resourceFile);
     if (includePrivate) {
-      console.warn("Building for NON-PUBLIC assets");
+      log("Building for NON-PUBLIC assets");
     }
+      log("A");
     const assets = await assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate);
-    console.log("loaded", assets.length);
-    let n = 25;
-    const batches = assets.length / n;
+      log("B");
+    log(`Loaded ${assets.length} assets`);
+    let n = 1; // DEBUG: reduced from 25 to investigate circular dependency
+    const testLimit = 5; // DEBUG: only process first 5 assets
+    const limitedAssets = assets.slice(0, testLimit);
+    console.log(`DEBUG: Limited to first ${testLimit} assets for testing`);
+    const batches = limitedAssets.length / n;
     const assetMetadata = [];
     const assocMetadata = [];
     const registries: {[key: string]: [number, number][]} = {};
     for (let b = 0 ; b < batches ; b++) {
-      if (b % 5 == 0) {
-        console.log(b, ": completed", b * n, "records,", Math.floor(b * n * 100 / assets.length), "%");
-      }
+      progress('batch-processing', 'Processing assets', b * n, limitedAssets.length);
 
-      let assetBatch: Asset[] = (await Promise.all(assets.slice(b * n, (b + 1) * n).map(asset => processAsset(asset, resourcePrefix)))).filter(asset => asset !== null);
+      let assetBatch: Asset[] = (await Promise.all(limitedAssets.slice(b * n, (b + 1) * n).map(asset => processAsset(asset, resourcePrefix)))).filter(asset => asset !== null);
 
       function addFeatures(asset: Asset) {
         const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
@@ -218,10 +237,11 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     return Promise.all(promises);
 }
 
-async function buildOnePreindex(resourceFile: string, additionalFiles: string[], resourcePrefix: string, includePrivate: boolean=false) {
+async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false) {
   const graphs = await ensureAssetFunctionsInitialized();
 
   let resourceFiles = [];
+  resourceFile = path.normalize(resourceFile);
   if (resourceFile.indexOf('%') !== -1) {
     let i = 0;
     let filename;
@@ -239,38 +259,70 @@ async function buildOnePreindex(resourceFile: string, additionalFiles: string[],
   } else {
     resourceFiles = [resourceFile];
   }
-  resourceFiles = [...resourceFiles, ...additionalFiles];
   console.log("Resource files:", resourceFiles);
-  const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models);
-  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate);
-}
-
-export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false) {
-  if (resourceFile) {
-    const additionalFiles: string[] = [];
-    // RMV FIXME
-    // let next = false;
-    // for (const arg of process.argv) {
-    //   if (next) {
-    //     additionalFiles.push(arg);
-    //     next = false;
-    //   }
-    //   if (arg === '-a') {
-    //     next = true;
-    //   }
-    // }
-    if (!resourceFile.endsWith('.json')) {
-      console.error(`Tried to run with a non .json file: ${resourceFile}`);
-      process.exit(1);
-    }
-    console.log("Pre-indexing", resourceFile);
-    await buildOnePreindex(resourceFile, additionalFiles, resourcePrefix);
-  } else {
-    const prebuildList: any[] = await safeJsonParseFile('prebuild/prebuild.json');
-    for (const prebuildItem of prebuildList) {
-      if (includePrivate || prebuildItem.public) {
-        await buildOnePreindex(prebuildItem.resources, prebuildItem.supplementary || [], prebuildItem.slugPrefix, includePrivate);
+  const sources = assetFunctions.config?.sources;
+  let resourceSource: PrebuildSource | undefined;
+  if (sources) {
+    for (const source of sources) {
+      if (resourceFile.match(source.resources)) {
+        if (resourceSource) {
+          console.warn("Resource file matches multiple sources:", resourceSource.resources, source.resources, "<- taking the first");
+          continue;
+        }
+        console.log("Found matching source in prebuild.json:", source.resources);
+        resourceSource = source;
+        if (source.dependencies) {
+          for (const dependency of source.dependencies) {
+            for await (const match of await getFilesForRegex("prebuild/business_data", dependency)) {
+              console.log("Dependency added:", match);
+              resourceFiles.push(match);
+            }
+          }
+        }
       }
     }
   }
+  const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models || {});
+  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate);
 }
+
+// Helper to log to either progress display or console
+function log(message: string) {
+  const display = getProgressDisplay();
+  display.log(message);
+}
+
+// Helper to update progress
+function progress(id: string, label: string, current: number, total: number) {
+  const display = getProgressDisplay();
+  display.progress(id, label, current, total);
+}
+
+export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false) {
+  if (!resourceFile.endsWith('.json')) {
+    console.error(`Tried to run with a non .json file: ${resourceFile}`);
+    process.exit(1);
+  }
+
+  if (useTui) {
+    enableProgress();
+  }
+
+  try {
+    log("Pre-indexing " + resourceFile);
+    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate);
+
+    if (useTui) {
+      getProgressDisplay().finish();
+    }
+  } catch (error) {
+    // Restore console if TUI was enabled
+    if (useTui) {
+      getProgressDisplay().cleanup();
+    }
+    throw error;
+  }
+}
+
+// Export helpers for use in other modules
+export { log, progress };

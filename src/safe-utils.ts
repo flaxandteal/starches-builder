@@ -43,37 +43,6 @@ export function safeJsonParseFileSync<T = any>(filePath: string): T {
 }
 
 /**
- * Slugify a string safely for use in file paths
- * Removes/replaces dangerous characters and limits length
- */
-export function slugify(name: string, maxLength: number = 100): string {
-  if (!name || typeof name !== 'string') {
-    throw new Error(`Invalid slug input: ${name}`);
-  }
-
-  // Remove or replace dangerous characters
-  const slug = name
-    .toLowerCase()
-    .trim()
-    // Replace spaces and underscores with hyphens
-    .replace(/[\s_]+/g, '-')
-    // Remove any character that isn't alphanumeric or hyphen
-    .replace(/[^a-z0-9-]/g, '')
-    // Remove consecutive hyphens
-    .replace(/-+/g, '-')
-    // Remove leading/trailing hyphens
-    .replace(/^-|-$/g, '')
-    // Limit length
-    .slice(0, maxLength);
-
-  if (!slug) {
-    throw new Error(`Slugification resulted in empty string for input: ${name}`);
-  }
-
-  return slug;
-}
-
-/**
  * Validate that a resolved path is within an allowed base directory
  * Prevents path traversal attacks
  */
