@@ -73,34 +73,26 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
 }
 
 let warned = false;
-let processedCount = 0;
 async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false): Promise<Asset | null> {
-  processedCount++;
-  const myCount = processedCount;
-  console.log(`DEBUG processAsset START #${myCount}`);
+  console.log("[processAsset] START - awaiting asset promise");
   const asset = await assetPromise;
-  console.log(`DEBUG processAsset #${myCount} got asset, modelClassName=${asset.__.wkrm.modelClassName}`);
+  console.log("[processAsset] Got asset:", asset.id);
   if (asset.__.wkrm.modelClassName !== "HeritageAsset") {
     if (!warned) {
       console.warn("No soft deletion, assuming all present", asset.__.wkrm.modelClassName)
     }
     warned = true;
   } else {
-    console.log(`DEBUG processAsset #${myCount} checking soft_deleted`);
+    console.log("[processAsset] Checking soft_deleted for HeritageAsset");
     const sd = await asset.soft_deleted;
-    console.log(`DEBUG processAsset #${myCount} soft_deleted=${sd}`);
+    console.log("[processAsset] soft_deleted =", sd);
     if (sd) {
       return null;
     }
   }
-  // TODO: there is an issue where if the awaits do not happen in sequence, the same tile will appear multiple times in a pseudo-list
-  // const names = [
-  //   [await asset.monument_names[0].monument_name, (await asset.monument_names[0]).__parentPseudo.tile.sortorder],
-  //   [await asset.monument_names[1].monument_name, (await asset.monument_names[1]).__parentPseudo.tile.sortorder],
-  // ].sort((a, b) => b[1] - a[1]).map(a => a[0]);
-  console.log(`DEBUG processAsset #${myCount} ABOUT TO CALL forJson`);
+  console.log("[processAsset] Calling forJson(true)...");
   const staticAsset = await asset.forJson(true);
-  console.log(`DEBUG processAsset #${myCount} forJson complete, calling getMeta, staticAsset.root keys:`, Object.keys(staticAsset?.root || {}));
+  console.log("[processAsset] forJson complete");
   const meta = await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
   const replacer = function (_: string, value: any) {
     if (value instanceof Map) {
@@ -169,18 +161,23 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     const assets = await assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate);
       log("B");
     log(`Loaded ${assets.length} assets`);
-    let n = 1; // DEBUG: reduced from 25 to investigate circular dependency
-    const testLimit = 5; // DEBUG: only process first 5 assets
-    const limitedAssets = assets.slice(0, testLimit);
-    console.log(`DEBUG: Limited to first ${testLimit} assets for testing`);
-    const batches = limitedAssets.length / n;
+    console.log(`[DEBUG] About to setup batch processing for ${assets.length} assets`);
+    // Batch size for parallel processing - RefCell fix allows concurrent async ops
+    const n = 10;
+    const batches = Math.ceil(assets.length / n);
+    console.log(`[DEBUG] Will process ${batches} batches of size ${n}`);
     const assetMetadata = [];
     const assocMetadata = [];
     const registries: {[key: string]: [number, number][]} = {};
+    console.log(`[DEBUG] Starting batch loop`);
     for (let b = 0 ; b < batches ; b++) {
-      progress('batch-processing', 'Processing assets', b * n, limitedAssets.length);
+      console.log(`[batch] Starting batch ${b}/${batches}, processing assets ${b * n} to ${Math.min((b + 1) * n, assets.length)}`);
+      progress('batch-processing', 'Processing assets', b * n, assets.length);
 
-      let assetBatch: Asset[] = (await Promise.all(limitedAssets.slice(b * n, (b + 1) * n).map(asset => processAsset(asset, resourcePrefix)))).filter(asset => asset !== null);
+      const batchAssets = assets.slice(b * n, (b + 1) * n);
+      console.log(`[batch] Batch has ${batchAssets.length} assets, calling Promise.all...`);
+      let assetBatch: Asset[] = (await Promise.all(batchAssets.map(asset => processAsset(asset, resourcePrefix, includePrivate)))).filter(asset => asset !== null);
+      console.log(`[batch] Batch ${b} completed, got ${assetBatch.length} non-null results`);
 
       function addFeatures(asset: Asset) {
         const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
