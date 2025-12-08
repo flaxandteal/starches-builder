@@ -4,6 +4,11 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { cli_index, cli_etl } from './cli/index.ts';
 import { init } from './init.ts';
+import { version as alizarinVersion } from 'alizarin';
+
+// Version injected at build time by tsup
+declare const __STARCHES_BUILDER_VERSION__: string;
+export const version: string = __STARCHES_BUILDER_VERSION__;
 
 // Global error handlers to ensure stack traces are always printed
 process.on('uncaughtException', (error) => {
@@ -19,6 +24,9 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 yargs(hideBin(process.argv))
+  .middleware(() => {
+    console.log(`starches-builder v${version} (alizarin v${alizarinVersion})\n`);
+  }, true)
   .command("init", "initialize a new starches-builder project", function (yargs) {
     return yargs
       .option("dir", {
@@ -67,8 +75,18 @@ yargs(hideBin(process.argv))
         type: "boolean",
         default: false
       })
+      .option("lazy", {
+        description: "use lazy tile loading (default: false for ETL where tiles are in the JSON)",
+        type: "boolean",
+        default: false
+      })
+      .option("summary", {
+        description: "print timing summary at the end of the run",
+        type: "boolean",
+        default: false
+      })
   }, async (argv) => {
-    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean);
+    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean);
   })
   .help()
   .fail((msg, err, yargs) => {

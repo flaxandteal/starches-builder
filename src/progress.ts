@@ -163,6 +163,19 @@ export class ProgressDisplay {
     this.renderNow();
   }
 
+  /**
+   * Force an immediate render, bypassing throttle.
+   * Use this sparingly - it's meant for ensuring UI updates during long operations.
+   */
+  forceRender() {
+    if (!this.isEnabled) return;
+    if (this.pendingRender) {
+      clearTimeout(this.pendingRender);
+      this.pendingRender = null;
+    }
+    this.renderNow();
+  }
+
   private renderNow() {
     if (!this.isEnabled) return;
     this.lastRenderTime = Date.now();

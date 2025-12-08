@@ -13,17 +13,24 @@ export class ResourceLoader {
   }
 
   async loadRegistries(graphManager: GraphManager, includePrivate: boolean) {
+    const display = getProgressDisplay();
+
     // First, ensure the graph is loaded with correct default permissions
+    display.log("Loading Registry graph...");
     await graphManager.loadGraph("Registry", includePrivate);
 
+    display.log("Getting Registry graph...");
     const registryGraph = await graphManager.get("Registry", includePrivate);
 
     // Apply permissions to Registry model BEFORE calling all() which creates resources
     // This ensures tiles aren't pruned incorrectly when includePrivate is true
+    display.log("Applying Registry permissions...");
     await this.permissionManager.applyPermissions(registryGraph, "Registry", includePrivate);
 
+    display.log("Loading all registries...");
     const allRegs = await registryGraph.all();
 
+    display.log(`Processing ${allRegs.length} registries...`);
     const entries: [string, string][] = [];
     for (const reg of allRegs) {
       const nameCount = await reg.names.length;
@@ -93,36 +100,92 @@ export class ResourceLoader {
     }
   }
 
-  async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}) {
+  async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false) {
+    const display = getProgressDisplay();
+    display.log("Parsing resource file...");
     const resourceFile = await safeJsonParseFile(filename);
     const resourceList: staticTypes.StaticResource[] = resourceFile.business_data.resources;
-    const graphs = resourceList.reduce((set: Set<string>, resource: staticTypes.StaticResource) => {
+    display.log(`Found ${resourceList.length} resources in file`);
+    const graphs: Set<string> = resourceList.reduce((set: Set<string>, resource: staticTypes.StaticResource) => {
       set.add(resource.resourceinstance.graph_id);
       return set;
-    }, new Set());
+    }, new Set<string>());
 
-    const resources = [];
+    const resources: Promise<any>[] = [];
     const models: {[graphId: string]: any} = {};
 
+    display.log("Starting registry loading...");
     await this.loadRegistries(graphManager, includePrivate);
+    display.log("Registry loading complete, starting graph/resource loading...");
     await this.loadGraphsAndResources(graphManager, modelFiles, includePrivate);
+    display.log("Graph/resource loading complete");
 
     // Now set up permissions for each graph
-    for (const modelToLoad of graphs) {
+    const graphsArray: string[] = Array.from(graphs);
+    for (let i = 0; i < graphsArray.length; i++) {
+      const modelToLoad: string = graphsArray[i];
       const Model = await graphManager.get(modelToLoad, includePrivate);
       const modelClassName = Model.wkrm.modelClassName;
 
+      display.progress('permission-setup', 'Setting up permissions', i + 1, graphsArray.length);
       await this.permissionManager.applyPermissions(Model, modelClassName, includePrivate);
       models[modelToLoad] = Model;
     }
 
-    for (const staticResource of resourceList) {
-      const Model = models[staticResource.resourceinstance.graph_id];
-      const resource = Model.find(staticResource.resourceinstance.resourceinstanceid);
-      resources.push(resource);
+    display.log(`Finding ${resourceList.length} resources...`);
+    // Debug: check cache state before find calls
+    display.log(`Cache size: ${staticStore.cache?.size || 'N/A'}, cacheMetadataOnly: ${(staticStore as any).cacheMetadataOnly}`);
+    if (resourceList.length > 0) {
+      const firstId = resourceList[0].resourceinstance.resourceinstanceid;
+      const cached = staticStore.cache?.get(firstId);
+      display.log(`First resource ${firstId} cached as: ${cached?.constructor?.name || 'not found'}`);
     }
 
-    return Promise.all(resources).catch((e) => {
+    // Process in batches to allow event loop to breathe and show progress
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < resourceList.length; i += BATCH_SIZE) {
+      display.log(`Resource list ${i}`);
+      const batch = resourceList.slice(i, Math.min(i + BATCH_SIZE, resourceList.length));
+      const batchPromises = batch.map((staticResource) => {
+        const Model = models[staticResource.resourceinstance.graph_id];
+        // Pass lazy flag - for ETL (lazy=false), tiles are loaded upfront from the JSON
+        return Model.find(staticResource.resourceinstance.resourceinstanceid, lazy);
+      });
+      resources.push(...batchPromises);
+
+      // Update progress and yield to event loop
+      display.progress('finding-resources', 'Finding resources', Math.min(i + BATCH_SIZE, resourceList.length), resourceList.length);
+      display.forceRender();
+      // Yield to event loop
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    display.log(`Resolving ${resources.length} resources...`);
+    display.forceRender();
+    let resolved = 0;
+    let lastLogTime = Date.now();
+    let lastLogCount = 0;
+    const totalResources = resources.length;
+    const trackedResources = resources.map((p) =>
+      p.then((result: any) => {
+        resolved++;
+        const now = Date.now();
+        // Log rate every 500 resources or every 5 seconds
+        if (resolved % 500 === 0 || (now - lastLogTime > 5000 && resolved > lastLogCount)) {
+          const elapsed = now - lastLogTime;
+          const rate = ((resolved - lastLogCount) / elapsed * 1000).toFixed(1);
+          display.log(`Resolved ${resolved}/${totalResources} (${rate} res/sec)`);
+          lastLogTime = now;
+          lastLogCount = resolved;
+        }
+        if (resolved % 10 === 0 || resolved === totalResources) {
+          display.progress('resolving-resources', 'Resolving resources', resolved, totalResources);
+          display.forceRender();
+        }
+        return result;
+      })
+    );
+    return Promise.all(trackedResources).catch((e) => {
       console.log("*** Could not load a resource, perhaps the graph is not in prebuild/graphs.json or a dependency is missing in prebuild/prebuild.json? ***");
       throw e;
     });

@@ -26,6 +26,6 @@ export async function cli_index(definitions: string, preIndexDirectory: string, 
   return reindex(preIndexFiles, definitions, site, includePrivate);
 }
 
-export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false) {
-  return etl(resourceFile, resourcePrefix, includePrivate, useTui);
+export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false, lazy: boolean = false, summary: boolean = false) {
+  return etl(resourceFile, resourcePrefix, includePrivate, useTui, lazy, summary);
 }

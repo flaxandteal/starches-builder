@@ -21,7 +21,6 @@ export class MetadataExtractor {
      * not already serialized.
      */
     const modelType = asset.__.wkrm.modelClassName;
-    console.log("DEBUG UNCONDITIONAL: getMeta called, modelType =", modelType);
     let displayName: string = "(unknown)"; // TODO: translate
     if (await asset.$?.getName) {
       displayName = await asset.$.getName();
@@ -29,30 +28,11 @@ export class MetadataExtractor {
 
     const geometryPath = this.config?.paths?.["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
 
-    // Debug: Log first call for HeritageAsset
-    if (modelType === "HeritageAsset") {
-      console.log("DEBUG: getMeta called for HeritageAsset");
-      console.log("DEBUG: geometryPath =", geometryPath);
-      console.log("DEBUG: staticAsset type =", typeof staticAsset);
-      console.log("DEBUG: staticAsset keys =", Object.keys(staticAsset || {}));
-    }
-
     let geometry = await getValueFromPath(
       staticAsset,
       geometryPath
     );
 
-    // Debug: Check geometry result
-    if (modelType === "HeritageAsset") {
-      console.log("DEBUG: geometry result =", geometry ? "HAS VALUE" : "NULL/UNDEFINED");
-      if (!geometry) {
-        console.log("DEBUG: staticAsset.location_data =", staticAsset?.location_data !== undefined ? "exists" : "undefined");
-        if (staticAsset?.location_data) {
-          console.log("DEBUG: location_data type =", typeof staticAsset.location_data);
-          console.log("DEBUG: location_data.geometry =", staticAsset?.location_data?.geometry !== undefined ? "exists" : "undefined");
-        }
-      }
-    }
     let location = await getValueFromPath(
       staticAsset,
       this.config?.paths?.["location"] ?? DEFAULT_PREBUILD_PATHS.location

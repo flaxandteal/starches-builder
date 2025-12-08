@@ -1,6 +1,6 @@
 {
   "name": "starches-builder",
-  "version": "2.0.0-alpha.2",
+  "version": "2.0.0-alpha.3",
   "description": "Alizarin builder for Hugo",
   "keywords": [
     "static",
@@ -50,7 +50,7 @@
     "build:native": "napi build --platform --release && npm run link:native",
     "build:native:debug": "napi build --platform && npm run link:native",
     "link:native": "sh -c 'export PLAT=$(node scripts/get-platform-glob.js); for f in *$PLAT.node; do [ -f \"$f\" ] && ln -sf \"$f\" starches-builder.node && break; done' || true",
-    "build": "npm run build:native && tsup ./src/index.ts --format esm",
+    "build": "npm run build:native && tsup",
     "bundle": "npm run build",
     "upload": "npm run bundle && npm publish",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest --verbose ./tests",
@@ -75,7 +75,7 @@
   },
   "dependencies": {
     "@types/blessed": "^0.1.26",
-    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.1/alizarin-0.2.1-alpha.0.tgz",
+    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.3/alizarin-0.2.1-alpha.3.tgz",
     "blessed": "^0.1.81",
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",
