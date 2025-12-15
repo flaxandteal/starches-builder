@@ -81,6 +81,26 @@ export class MetadataExtractor {
     );
     meta.meta["registries"] = "[]";
     meta.content = displayName;
+
+    // Extract configured filters from node data
+    if (this.config?.filters) {
+      for (const [filterName, filterConfig] of Object.entries(this.config.filters)) {
+        console.log("Extracting filter", filterName, "using path", filterConfig.path);
+        const rawValue = await getValueFromPath(staticAsset, filterConfig.path);
+        let filterValue: string[];
+
+        if (filterConfig.type === "array") {
+          // Value is already an array (or should be)
+          filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
+        } else {
+          // Single value - wrap in array for consistent handling
+          filterValue = rawValue ? [rawValue] : [];
+        }
+
+        meta.meta[filterName] = JSON.stringify(filterValue);
+      }
+    }
+
     return meta;
   }
 }

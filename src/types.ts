@@ -16,6 +16,18 @@ const DEFAULT_PREBUILD_PATHS: PrebuildPaths = {
   geometry: ".location_data.geometry.geospatial_coordinates"
 };
 
+/**
+ * Configuration for a single filter that can be used in Pagefind search
+ */
+interface FilterConfig {
+  /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
+  path: string
+  /** Whether the value is a single item or an array of items */
+  type: "single" | "array"
+  /** Optional list of all valid options (for frontend UI, even if not in data) */
+  options?: string[]
+}
+
 interface GraphConfiguration {
   models: {[graphId: string]: ModelEntry}
 }
@@ -26,6 +38,7 @@ interface PrebuildConfiguration {
   paths?: {[key: string]: string}
   permissionsFile?: string
   customDatatypes?: {[datatype: string]: string}
+  filters?: {[filterName: string]: FilterConfig}
   [key: string]: any
 }
 
@@ -95,4 +108,4 @@ interface IAssetFunctions {
 }
 
 export { Asset, ModelEntry, IndexEntry, DEFAULT_PREBUILD_PATHS };
-export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths };
+export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths, FilterConfig };

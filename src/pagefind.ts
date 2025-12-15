@@ -5,8 +5,10 @@ import { slugify } from 'alizarin';
 import { REGISTRIES } from "./utils";
 import { PUBLIC_MODELS, DEFAULT_LANGUAGE } from "./config";
 import { safeJsonParse, safeJsonParseFile } from './safe-utils';
+import type { PrebuildConfiguration } from './types';
 
 export async function buildPagefind(files: string[] | null, publicFolder: string, includePrivate: boolean = false) {
+    const config = await safeJsonParseFile<PrebuildConfiguration>("prebuild/prebuild.json");
     const { index } = await pagefind.createIndex();
     if (!index) {
       throw Error("Could not create pagefind index");
@@ -37,6 +39,23 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             registriesSet.add(registry);
         }
         const designations = asset.meta.designations ? safeJsonParse<string[]>(asset.meta.designations, `asset ${asset.slug} designations`) : [];
+
+        // Build filters object - start with built-in filters
+        const filters: {[key: string]: string[]} = {
+            tags: registries,
+            designations: designations
+        };
+
+        // Add any configured custom filters
+        if (config?.filters) {
+            for (const filterName of Object.keys(config.filters)) {
+                const filterValue = asset.meta[filterName]
+                    ? safeJsonParse<string[]>(asset.meta[filterName], `asset ${asset.slug} ${filterName}`)
+                    : [];
+                filters[filterName] = filterValue;
+            }
+        }
+
         // const regcode = registriesToRegcode(registries);
         await index.addCustomRecord({
             url: `/asset/?slug=${asset.meta.slug}`,
@@ -44,10 +63,7 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             content: asset.content,
             language: language,
             // regcode: regcode, TODO
-            filters: {
-                tags: registries,
-                designations: designations
-            },
+            filters: filters,
             meta: asset.meta
         });
         recordCount += 1;
