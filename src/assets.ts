@@ -56,7 +56,7 @@ class AssetFunctions implements IAssetFunctions {
     return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate);
   }
 
-  async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false) {
+  getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
     return this.resourceLoader.getAllFrom(graphManager, filename, includePrivate, this.getModelFiles(), lazy);
   }
 

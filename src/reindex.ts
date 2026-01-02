@@ -131,7 +131,7 @@ async function processGraphs(
         const meta = buildGraphMetadata(graph);
         // Ensure clean plain object for WASM deserialization
         const wkrm = new WKRM(meta);
-        const rmw = new ResourceModelWrapper(wkrm, graph, undefined);
+        const rmw = new ResourceModelWrapper(wkrm, graph, undefined, true);
         let publicationId;
 
         if (!includePrivate) {

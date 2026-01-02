@@ -100,7 +100,7 @@ export class ResourceLoader {
     }
   }
 
-  async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false) {
+  async *getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
     const display = getProgressDisplay();
     display.log("Parsing resource file...");
     const resourceFile = await safeJsonParseFile(filename);
@@ -111,7 +111,6 @@ export class ResourceLoader {
       return set;
     }, new Set<string>());
 
-    const resources: Promise<any>[] = [];
     const models: {[graphId: string]: any} = {};
 
     display.log("Starting registry loading...");
@@ -141,53 +140,46 @@ export class ResourceLoader {
       display.log(`First resource ${firstId} cached as: ${cached?.constructor?.name || 'not found'}`);
     }
 
-    // Process in batches to allow event loop to breathe and show progress
-    const BATCH_SIZE = 50;
+    // Process in small batches and YIELD each resource individually
+    // This allows the caller to process and release resources incrementally
+    // preventing WASM memory exhaustion from accumulating all resources at once
+    const BATCH_SIZE = 10;
+    let lastLogTime = Date.now();
+    let lastLogCount = 0;
+    let yielded = 0;
+
     for (let i = 0; i < resourceList.length; i += BATCH_SIZE) {
-      display.log(`Resource list ${i}`);
       const batch = resourceList.slice(i, Math.min(i + BATCH_SIZE, resourceList.length));
       const batchPromises = batch.map((staticResource) => {
         const Model = models[staticResource.resourceinstance.graph_id];
         // Pass lazy flag - for ETL (lazy=false), tiles are loaded upfront from the JSON
         return Model.find(staticResource.resourceinstance.resourceinstanceid, lazy);
       });
-      resources.push(...batchPromises);
 
-      // Update progress and yield to event loop
-      display.progress('finding-resources', 'Finding resources', Math.min(i + BATCH_SIZE, resourceList.length), resourceList.length);
+      // Await this batch before starting the next - reduces Promise queue contention
+      const batchResults = await Promise.all(batchPromises);
+
+      // Yield each resource individually so caller can process and release
+      for (const resource of batchResults) {
+        yield resource;
+        yielded++;
+      }
+
+      // Update progress and log rate
+      const processed = Math.min(i + BATCH_SIZE, resourceList.length);
+      display.progress('finding-resources', 'Finding resources', processed, resourceList.length);
+
+      const now = Date.now();
+      if (processed % 500 === 0 || (now - lastLogTime > 5000 && processed > lastLogCount)) {
+        const elapsed = now - lastLogTime;
+        const rate = ((processed - lastLogCount) / elapsed * 1000).toFixed(1);
+        display.log(`Found ${processed}/${resourceList.length} (${rate} res/sec)`);
+        lastLogTime = now;
+        lastLogCount = processed;
+      }
       display.forceRender();
-      // Yield to event loop
-      await new Promise(resolve => setImmediate(resolve));
     }
 
-    display.log(`Resolving ${resources.length} resources...`);
-    display.forceRender();
-    let resolved = 0;
-    let lastLogTime = Date.now();
-    let lastLogCount = 0;
-    const totalResources = resources.length;
-    const trackedResources = resources.map((p) =>
-      p.then((result: any) => {
-        resolved++;
-        const now = Date.now();
-        // Log rate every 500 resources or every 5 seconds
-        if (resolved % 500 === 0 || (now - lastLogTime > 5000 && resolved > lastLogCount)) {
-          const elapsed = now - lastLogTime;
-          const rate = ((resolved - lastLogCount) / elapsed * 1000).toFixed(1);
-          display.log(`Resolved ${resolved}/${totalResources} (${rate} res/sec)`);
-          lastLogTime = now;
-          lastLogCount = resolved;
-        }
-        if (resolved % 10 === 0 || resolved === totalResources) {
-          display.progress('resolving-resources', 'Resolving resources', resolved, totalResources);
-          display.forceRender();
-        }
-        return result;
-      })
-    );
-    return Promise.all(trackedResources).catch((e) => {
-      console.log("*** Could not load a resource, perhaps the graph is not in prebuild/graphs.json or a dependency is missing in prebuild/prebuild.json? ***");
-      throw e;
-    });
+    display.log(`Found all ${yielded} resources`);
   }
 }

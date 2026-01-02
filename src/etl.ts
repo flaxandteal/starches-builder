@@ -3,15 +3,12 @@ import * as fs from "fs";
 import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
-import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, resetTimingStats, logTimingStats, tracing } from 'alizarin';
+import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
 
 // Set up tracing
 const tracer = tracing.getTracer('starches-builder', version);
-// Per-batch summary (reset each batch)
-const batchSummaryExporter = new tracing.SummaryExporter();
 // Global summary (accumulates across entire run)
 const globalSummaryExporter = new tracing.SummaryExporter();
-tracing.addGlobalExporter(batchSummaryExporter.export);
 tracing.addGlobalExporter(globalSummaryExporter.export);
 
 import { Asset } from './types.ts';
@@ -177,60 +174,92 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     if (includePrivate) {
       log("Building for NON-PUBLIC assets");
     }
-      log("A");
-    const assets = await assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate, lazy);
-      log("B");
-    log(`Loaded ${assets.length} assets`);
-    console.log(`[DEBUG] About to setup batch processing for ${assets.length} assets`);
-    // Batch size for parallel processing - RefCell fix allows concurrent async ops
-    const n = 10;
-    const batches = Math.ceil(assets.length / n);
-    console.log(`[DEBUG] Will process ${batches} batches of size ${n}`);
-    const assetMetadata = [];
-    const assocMetadata = [];
+    log("Starting resource processing...");
+
+    // getAllFrom now returns an async generator to avoid accumulating all resources in memory
+    const assetGenerator = assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate, lazy);
+
+    const assetMetadata: Asset[] = [];
+    const assocMetadata: Asset[] = [];
     const registries: {[key: string]: [number, number][]} = {};
-    console.log(`[DEBUG] Starting batch loop`);
-    for (let b = 0 ; b < batches ; b++) {
-      console.log(`[batch] Starting batch ${b}/${batches}, processing assets ${b * n} to ${Math.min((b + 1) * n, assets.length)}`);
-      progress('batch-processing', 'Processing assets', b * n, assets.length);
 
-      // Reset both legacy and new timing stats for this batch
-      resetTimingStats();
-      batchSummaryExporter.reset();
+    // Batch size for parallel processing
+    const n = 10;
+    let batchAssets: any[] = [];
+    let totalProcessed = 0;
+    let batchNumber = 0;
 
-      const batchAssets = assets.slice(b * n, (b + 1) * n);
-      console.log(`[batch] Batch has ${batchAssets.length} assets, calling Promise.all...`);
+    function addFeatures(asset: Asset) {
+      const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
+      assetRegistries.forEach((reg: string) => {
+        if (asset.meta.location) {
+          if (!registries[reg]) {
+            registries[reg] = [];
+          }
+          const location = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
+          registries[reg].push(location);
+        }
+      });
+    }
 
-      let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': b, 'batch.size': batchAssets.length }, async (batchSpan) => {
-        const results = await Promise.all(batchAssets.map(asset => processAsset(asset, resourcePrefix, includePrivate)));
-        return results.filter(asset => asset !== null);
+    // Process resources as they arrive from the generator
+    for await (const asset of assetGenerator) {
+      batchAssets.push(asset);
+
+      // Process when we have a full batch
+      if (batchAssets.length >= n) {
+        progress('batch-processing', 'Processing assets', totalProcessed, totalProcessed + 100); // Estimate
+
+        let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
+          const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate)));
+          return results.filter(a => a !== null);
+        });
+
+        // Release WASM memory for processed resources to prevent memory exhaustion
+        for (const processedAsset of batchAssets) {
+          try {
+            processedAsset.$?.release?.();
+          } catch (e) {
+            // Ignore release errors - resource may already be cleaned up
+          }
+        }
+
+        assetBatch.map((a: Asset) => a.meta && a.meta.geometry ? addFeatures(a) : null);
+        assocMetadata.push(...assetBatch.filter(a => !assetFunctions.shouldIndex(a, includePrivate)));
+        assetBatch = assetBatch.filter(a => assetFunctions.shouldIndex(a, includePrivate));
+        assetMetadata.push(...assetBatch);
+
+        totalProcessed += batchAssets.length;
+        batchNumber++;
+        batchAssets = [];
+      }
+    }
+
+    // Process any remaining assets in the final partial batch
+    if (batchAssets.length > 0) {
+      let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
+        const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate)));
+        return results.filter(a => a !== null);
       });
 
-      console.log(`[batch] Batch ${b} completed, got ${assetBatch.length} non-null results`);
-
-      // Flush and print timing summary for this batch
-      tracing.flushAll();
-      batchSummaryExporter.printSummary(`batch ${b}`);
-      logTimingStats(`batch ${b} (legacy)`);
-
-      function addFeatures(asset: Asset) {
-        const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
-        assetRegistries.forEach((reg: string) => {
-          if (asset.meta.location) {
-            if (!registries[reg]) {
-              registries[reg] = [];
-            }
-            const location = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
-            registries[reg].push(location);
-          }
-        });
+      // Release WASM memory for processed resources
+      for (const processedAsset of batchAssets) {
+        try {
+          processedAsset.$?.release?.();
+        } catch (e) {
+          // Ignore release errors
+        }
       }
-      assetBatch.map((asset: Asset) => asset.meta && asset.meta.geometry ? addFeatures(asset) : null)
-      console.log('mark');
-      assocMetadata.push(...assetBatch.filter(asset => !assetFunctions.shouldIndex(asset, includePrivate)));
-      assetBatch = assetBatch.filter(asset => assetFunctions.shouldIndex(asset, includePrivate));
+
+      assetBatch.map((a: Asset) => a.meta && a.meta.geometry ? addFeatures(a) : null);
+      assocMetadata.push(...assetBatch.filter(a => !assetFunctions.shouldIndex(a, includePrivate)));
+      assetBatch = assetBatch.filter(a => assetFunctions.shouldIndex(a, includePrivate));
       assetMetadata.push(...assetBatch);
+
+      totalProcessed += batchAssets.length;
     }
+
+    log(`Processed ${totalProcessed} assets total`);
 
     let preindexFile: string;
     let fgbFile: string;
