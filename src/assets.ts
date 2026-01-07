@@ -23,7 +23,7 @@ class AssetFunctions implements IAssetFunctions {
     this.permissionManager = new PermissionManager();
     this.templateManager = new TemplateManager();
     this.slugGenerator = new SlugGenerator();
-    this.metadataExtractor = new MetadataExtractor(this.slugGenerator);
+    this.metadataExtractor = new MetadataExtractor(this.slugGenerator, this.templateManager);
     this.resourceLoader = new ResourceLoader(this.permissionManager);
   }
 

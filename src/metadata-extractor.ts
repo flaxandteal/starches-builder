@@ -1,14 +1,19 @@
+import { Marked } from 'marked'
+import markedPlaintify from 'marked-plaintify'
 import { getValueFromPath } from "./utils";
 import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
 import type { PrebuildConfiguration } from "./types";
 import type { SlugGenerator } from "./slug-generator";
+import { TemplateManager } from './templates';
 
 export class MetadataExtractor {
   config?: PrebuildConfiguration;
   slugGenerator: SlugGenerator;
+  templateManager: TemplateManager;
 
-  constructor(slugGenerator: SlugGenerator) {
+  constructor(slugGenerator: SlugGenerator, templateManager: TemplateManager) {
     this.slugGenerator = slugGenerator;
+    this.templateManager = templateManager;
   }
 
   setConfig(config: PrebuildConfiguration) {
@@ -80,7 +85,21 @@ export class MetadataExtractor {
       [] // TODO: this should say ['public'] if we know it is
     );
     meta.meta["registries"] = "[]";
-    meta.content = displayName;
+
+    let template = this.templateManager.getTemplate(modelType);
+    const md = await template({ type: modelType, title: meta.meta.title, ha: staticAsset }, {
+      allowProtoPropertiesByDefault: true,
+      allowProtoMethodsByDefault: true,
+    });
+    const plaintext = await new Marked({ gfm: true })
+      .use(markedPlaintify())
+      .parse(md);
+    const [indexOnly, description] = plaintext.split('$$$');
+    if (description) {
+      meta.content = indexOnly.substring(0, 300) + ' $$$ ' + description.substring(0, 300);
+    } else {
+      meta.content = indexOnly.substring(0, 300);
+    }
 
     // Extract configured filters from node data
     if (this.config?.filters) {

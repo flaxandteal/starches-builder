@@ -100,6 +100,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     const staticAsset = await tracer.startActiveSpan('forJson', async () => {
       return await asset.forJson(true);
     });
+    console.log(typeof (await asset.monument_names[0]));
 
     const meta = await tracer.startActiveSpan('getMeta', async () => {
       return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
