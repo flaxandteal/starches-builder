@@ -85,7 +85,6 @@ export class MetadataExtractor {
     // Extract configured filters from node data
     if (this.config?.filters) {
       for (const [filterName, filterConfig] of Object.entries(this.config.filters)) {
-        console.log("Extracting filter", filterName, "using path", filterConfig.path);
         const rawValue = await getValueFromPath(staticAsset, filterConfig.path);
         let filterValue: string[];
 
