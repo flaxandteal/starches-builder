@@ -52,8 +52,8 @@ class AssetFunctions implements IAssetFunctions {
     return this.slugGenerator.toSlug(title, staticAsset, prefix);
   }
 
-  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, includePrivate: boolean): Promise<Asset> {
-    return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate);
+  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, includePrivate: boolean, displayAsset?: any): Promise<Asset> {
+    return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate, displayAsset);
   }
 
   getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {

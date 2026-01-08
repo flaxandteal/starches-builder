@@ -20,10 +20,13 @@ export class MetadataExtractor {
     this.config = config;
   }
 
-  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean): Promise<Asset> {
+  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean, displayAsset?: any): Promise<Asset> {
     /**
      * getMeta will use the staticAsset where possible, but that _can_ be dynamic (i.e. raw asset) if you have
      * not already serialized.
+     *
+     * If displayAsset is provided, it will be used for template rendering (has display-friendly strings).
+     * Otherwise staticAsset is used for both data extraction and templates.
      */
     const modelType = asset.__.wkrm.modelClassName;
     let displayName: string = "(unknown)"; // TODO: translate
@@ -87,7 +90,10 @@ export class MetadataExtractor {
     meta.meta["registries"] = "[]";
 
     let template = this.templateManager.getTemplate(modelType);
-    const md = await template({ type: modelType, title: meta.meta.title, ha: staticAsset }, {
+    // Use displayAsset for templates if provided (has display-friendly strings),
+    // otherwise fall back to staticAsset
+    const templateData = displayAsset ?? staticAsset;
+    const md = await template({ type: modelType, title: meta.meta.title, ha: templateData }, {
       allowProtoPropertiesByDefault: true,
       allowProtoMethodsByDefault: true,
     });

@@ -4,6 +4,8 @@ import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
 import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
+// Import CLM to register display serializers for reference datatypes
+import '@alizarin/clm';
 
 // Set up tracing
 const tracer = tracing.getTracer('starches-builder', version);
@@ -100,10 +102,14 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     const staticAsset = await tracer.startActiveSpan('forJson', async () => {
       return await asset.forJson(true);
     });
-    console.log(typeof (await asset.monument_names[0]));
+
+    // Get display-friendly JSON for template rendering (resolves references to strings)
+    const displayAsset = await tracer.startActiveSpan('forDisplayJson', async () => {
+      return await asset.forDisplayJson(true);
+    });
 
     const meta = await tracer.startActiveSpan('getMeta', async () => {
-      return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
+      return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate, displayAsset.root);
     });
 
     const replacer = function (_: string, value: any) {
