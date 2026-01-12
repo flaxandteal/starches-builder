@@ -1,6 +1,6 @@
 {
   "name": "starches-builder",
-  "version": "2.0.0-alpha.11",
+  "version": "2.0.0-alpha.12",
   "description": "Alizarin builder for Hugo",
   "keywords": [
     "static",
@@ -74,10 +74,10 @@
     "typescript-eslint": "^8.29.0"
   },
   "dependencies": {
-    "@alizarin/clm": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.11/alizarin-clm-0.2.1-alpha.11.tgz",
-    "@alizarin/filelist": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.11/alizarin-filelist-0.2.1-alpha.11.tgz",
+    "@alizarin/clm": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.12/alizarin-clm-0.2.1-alpha.12.tgz",
+    "@alizarin/filelist": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.12/alizarin-filelist-0.2.1-alpha.12.tgz",
     "@types/blessed": "^0.1.26",
-    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.11/alizarin-0.2.1-alpha.11.tgz",
+    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.12/alizarin-0.2.1-alpha.12.tgz",
     "blessed": "^0.1.81",
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",
