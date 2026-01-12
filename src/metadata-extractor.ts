@@ -59,12 +59,12 @@ export class MetadataExtractor {
           return c;
         }, [0, 0]);
         location = {
-            "features": [{
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": centre
-                }
-            }]
+          "features": [{
+            "geometry": {
+              "type": "Point",
+              "coordinates": centre
+            }
+          }]
         }
       }
     }
@@ -92,7 +92,7 @@ export class MetadataExtractor {
     let template = this.templateManager.getTemplate(modelType);
     // Use displayAsset for templates if provided (has display-friendly strings),
     // otherwise fall back to staticAsset
-    const templateData = displayAsset ?? staticAsset;
+    const templateData = staticAsset;
 
     const md = await template({ type: modelType, title: meta.meta.title, ha: templateData }, {
       allowProtoPropertiesByDefault: true,
@@ -111,22 +111,51 @@ export class MetadataExtractor {
 
     // Extract configured filters from node data
     if (this.config?.filters) {
-      for (const [filterName, filterConfig] of Object.entries(this.config.filters)) {
-        const rawValue = await getValueFromPath(staticAsset, filterConfig.path);
-        let filterValue: string[];
+      for (const filterConfig of this.config.filters) {
+        if (filterConfig.graph === modelType) {
+          for (const [filterName, config] of Object.entries(filterConfig)) {
+            if (filterName === "graph") continue; // Skip the graph identifier
+            const rawValue = await getValueFromPath(staticAsset, config.path);
+            let filterValue: string[];
 
-        if (filterConfig.type === "array") {
-          // Value is already an array (or should be)
-          filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
-        } else {
-          // Single value - wrap in array for consistent handling
-          filterValue = rawValue ? [rawValue] : [];
+            if (config.type === "array") {
+              filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
+            } else {
+              filterValue = rawValue ? [rawValue] : [];
+            }
+            meta.meta[filterName] = JSON.stringify(filterValue);
+          }
         }
-
-        meta.meta[filterName] = JSON.stringify(filterValue);
       }
     }
 
+    // Thumbnail extraction
+    if (this.config?.thumbnail) {
+      console.log("Extracting thumbnail for model type:", modelType);
+      for (const thumbConfig of this.config.thumbnail || []) {
+        console.log("Checking thumbnail config for graph:", thumbConfig);
+        if (thumbConfig.graph === modelType || thumbConfig.graph === "*") {
+          const thumbnailData = await getValueFromPath(displayAsset, thumbConfig.path);
+          const identifiers = thumbConfig.identifier || [];
+
+          // Find first image whose name contains one of the identifiers
+          for (const imageGroup of thumbnailData || []) {
+            for (const image of imageGroup?._ || []) {
+              const name = await image.name;
+              const nameLower = name?.toLowerCase() || '';
+              console.log("Checking image for thumbnail:", name);
+              const match = identifiers.find((id: string) => nameLower.includes(id.toLowerCase()));
+              if (match) {
+                console.log(`Found thumbnail: ${name} (matched identifier: ${match})`);
+                meta.meta.thumbnailName = name;
+                meta.meta.thumbnailAltText = await image.alt_text || '';
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
     return meta;
   }
 }

@@ -20,12 +20,23 @@ const DEFAULT_PREBUILD_PATHS: PrebuildPaths = {
  * Configuration for a single filter that can be used in Pagefind search
  */
 interface FilterConfig {
+  /** The modelClassName of the graph this filter applies to */
+  graph: string
   /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
   path: string
   /** Whether the value is a single item or an array of items */
   type: "single" | "array"
   /** Optional list of all valid options (for frontend UI, even if not in data) */
   options?: string[]
+}
+
+interface ThumbnailConfig {
+  /** The modelClassName of the graph this filter applies to */
+  graph: string
+  /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
+  path: string
+  /** The value that will be present in the image name to identify the thumbnail */
+  identifier: string[]
 }
 
 interface GraphConfiguration {
@@ -38,7 +49,8 @@ interface PrebuildConfiguration {
   paths?: {[key: string]: string}
   permissionsFile?: string
   customDatatypes?: {[datatype: string]: string}
-  filters?: {[filterName: string]: FilterConfig}
+  filters?: FilterConfig[]
+  thumbnail?: ThumbnailConfig[]
   [key: string]: any
 }
 
