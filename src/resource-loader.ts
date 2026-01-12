@@ -104,7 +104,14 @@ export class ResourceLoader {
     const display = getProgressDisplay();
     display.log("Parsing resource file...");
     const resourceFile = await safeJsonParseFile(filename);
-    const resourceList: staticTypes.StaticResource[] = resourceFile.business_data.resources;
+    let resourceList: staticTypes.StaticResource[] = resourceFile.business_data.resources;
+    if (!includePrivate) {
+      resourceList = resourceList.filter((resource: staticTypes.StaticResource) => {
+        if (resource.__scopes && resource.__scopes.includes("public")) {
+          return true;
+        }
+      });
+    }
     display.log(`Found ${resourceList.length} resources in file`);
     const graphs: Set<string> = resourceList.reduce((set: Set<string>, resource: staticTypes.StaticResource) => {
       set.add(resource.resourceinstance.graph_id);

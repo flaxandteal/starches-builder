@@ -2,10 +2,10 @@ import { Asset } from './types.ts';
 import { type FeatureCollection, type Feature } from "geojson";
 import { registriesToRegcode } from "./utils";
 import { DEFAULT_LANGUAGE } from "./config";
-import { PUBLIC_MODELS } from "./config";
 import { IndexEntry } from "./types";
 import * as pagefind from "pagefind";
 import { safeJsonParse } from './safe-utils';
+import { assetFunctions } from "./assets";
 
 
 export async function getLocations(index: pagefind.PagefindIndex, assetMetadata: Asset[], includePrivate: boolean=false): Promise<[IndexEntry, Feature][]> {
@@ -21,9 +21,11 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
         }
         return agg
     }, {});
+    await assetFunctions.initialize();
+    const publicModels = assetFunctions.getPermittedModels()
     return (await Promise.all(assetMetadata.map(async (asset: Asset) => {
         /// RMV
-        if (asset.meta && asset.meta.location && (includePrivate || PUBLIC_MODELS.includes(asset.type))) {
+        if (asset.meta && asset.meta.location && (includePrivate || publicModels.includes(asset.type))) {
             {
                 const loc = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
                 const registries = asset.meta.registries ? safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`) : [];

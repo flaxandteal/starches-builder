@@ -27,6 +27,10 @@ class AssetFunctions implements IAssetFunctions {
     this.resourceLoader = new ResourceLoader(this.permissionManager);
   }
 
+  getPermittedModels() {
+    return this.permissionManager.getPermittedModels();
+  }
+
   getPermittedNodegroups(modelName: string) {
     return this.permissionManager.getPermittedNodegroups(modelName);
   }

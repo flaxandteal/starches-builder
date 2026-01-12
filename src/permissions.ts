@@ -9,6 +9,18 @@ export class PermissionManager {
     this.permissions = permissions;
   }
 
+  getPermittedModels(): string[] {
+    /**
+     * Note that this will return models for which we do not explicitly say `false` as the permission list
+     */
+    const entries: [string, {[key: string]: boolean | string} | boolean][] = Object.entries(this.permissions);
+    return entries.map((value: [string, {[key: string]: boolean | string} | boolean]) => {
+      if (value[1] !== false) {
+        return value[0];
+      }
+    }).filter(key => key !== undefined);
+  }
+
   getPermittedNodegroups(modelName: string) {
     if (!this.permissions[modelName]) {
       return null;

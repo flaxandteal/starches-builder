@@ -11,7 +11,6 @@ export const REGISTRIES: string[] = [];
 // Will be removed in next major version
 export const FOR_ARCHES: boolean = false;
 export const CHUNK_SIZE_CHARS = 10000000;
-export const PUBLIC_MODELS: string[] = ["HeritageAsset", "Registry"];
 export const DEFAULT_LANGUAGE = "en";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));

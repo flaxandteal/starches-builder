@@ -80,13 +80,5 @@ export function getOutputPathConfig(outputDir: string): {
   };
 }
 
-// Public models allowed for export (when not in private mode)
-export const PUBLIC_MODELS = [
-  "HeritageAsset",
-  "Person",
-  "Organization",
-  "Event"
-];
-
 // Arches compatibility flag
 export const FOR_ARCHES = process.env.FOR_ARCHES === 'true';

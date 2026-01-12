@@ -143,7 +143,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     if (cache && Object.values(cache).length > 0) {
       resource.__cache = cache;
     }
-    resource.__scopes = safeJsonParse(meta.meta.scopes, 'resource scopes');
+    resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');
     resource.metadata = meta.meta;
     const serial = JSON.stringify(resource, replacer, 2)
     const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;

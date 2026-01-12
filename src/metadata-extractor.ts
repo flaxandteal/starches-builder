@@ -36,7 +36,7 @@ export class MetadataExtractor {
 
     const geometryPath = this.config?.paths?.["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
 
-    let geometry = await getValueFromPath(
+    const geometry = await getValueFromPath(
       staticAsset,
       geometryPath
     );
@@ -85,7 +85,7 @@ export class MetadataExtractor {
       slug,
       "",
       modelType,
-      [] // TODO: this should say ['public'] if we know it is
+      asset.$.resource.scopes || []
     );
     meta.meta["registries"] = "[]";
 
@@ -93,18 +93,20 @@ export class MetadataExtractor {
     // Use displayAsset for templates if provided (has display-friendly strings),
     // otherwise fall back to staticAsset
     const templateData = displayAsset ?? staticAsset;
+
     const md = await template({ type: modelType, title: meta.meta.title, ha: templateData }, {
       allowProtoPropertiesByDefault: true,
       allowProtoMethodsByDefault: true,
     });
+    const [indexOnly, description] = md.split('$$$');
     const plaintext = await new Marked({ gfm: true })
       .use(markedPlaintify())
-      .parse(md);
-    const [indexOnly, description] = plaintext.split('$$$');
+      .parse(indexOnly);
+    meta.content = plaintext.substring(0, 300);
     if (description) {
-      meta.content = indexOnly.substring(0, 300) + ' $$$ ' + description.substring(0, 300);
+      meta.meta.rawContent = description;
     } else {
-      meta.content = indexOnly.substring(0, 300);
+      meta.meta.rawContent = md;
     }
 
     // Extract configured filters from node data

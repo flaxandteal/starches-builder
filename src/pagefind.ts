@@ -3,9 +3,10 @@ import fs from "fs";
 import * as pagefind from "pagefind";
 import { slugify } from 'alizarin';
 import { REGISTRIES } from "./utils";
-import { PUBLIC_MODELS, DEFAULT_LANGUAGE } from "./config";
+import { DEFAULT_LANGUAGE } from "./config";
 import { safeJsonParse, safeJsonParseFile } from './safe-utils';
 import type { PrebuildConfiguration } from './types';
+import { assetFunctions } from "./assets";
 
 export async function buildPagefind(files: string[] | null, publicFolder: string, includePrivate: boolean = false) {
     const config = await safeJsonParseFile<PrebuildConfiguration>("prebuild/prebuild.json");
@@ -13,9 +14,9 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
     if (!index) {
       throw Error("Could not create pagefind index");
     }
-    await index.addDirectory({
-        path: publicFolder
-    });
+    // await index.addDirectory({
+    //     path: publicFolder
+    // });
     console.log("loading", files ? `${files.length} files` : 'all');
     const loadedFiles = files ? files : await fs.promises.readdir('prebuild/preindex').then(
       (files) => files.filter(f => f.endsWith('.pi')).map(f => `prebuild/preindex/${f}`)
@@ -29,8 +30,11 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
     const registriesSet: Set<string> = new Set();
     let recordCount = 0;
     const unmappedModels = new Set();
+    await assetFunctions.initialize();
+    const publicModels = assetFunctions.getPermittedModels()
+    const urls = new Set();
     for (const asset of assetMetadata) {
-        if (!includePrivate && !PUBLIC_MODELS.includes(asset.type)) {
+        if (!includePrivate && !publicModels.includes(asset.type)) {
             unmappedModels.add(asset.type);
             continue;
         }
@@ -57,7 +61,7 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
         }
 
         // const regcode = registriesToRegcode(registries);
-        await index.addCustomRecord({
+        const record = {
             url: `/asset/?slug=${asset.meta.slug}`,
             // Only taking a bit of the plaintext for now... RMV
             content: asset.content,
@@ -65,19 +69,24 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             // regcode: regcode, TODO
             filters: filters,
             meta: asset.meta
-        });
+        };
+        const result = await index.addCustomRecord(record);
+
         recordCount += 1;
+        urls.add(`${asset.meta.slug}`);
     }
+
     if (!includePrivate && unmappedModels.size) {
         console.log(
             "Not set to include private (non-public) models, so the only indexed models are:",
-            PUBLIC_MODELS.join(", ")
+            publicModels.join(", ")
         );
         console.log(
             "The following models were seen and not indexed:",
             [...unmappedModels].sort().join(", ")
         );
     }
+
     for (const registry of registriesSet) {
         const slug = slugify(registry);
         if (!REGISTRIES.includes(slug)) {
@@ -91,6 +100,8 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
     await index.writeFiles({
         outputPath: `${publicFolder}/pagefind`
     });
+    const catalogue = await index.getIndexCatalogue();
+    console.log("Added", catalogue.entries.length, "entries in catalogue");
 
     return { index, assetMetadata };
 }

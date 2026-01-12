@@ -11,7 +11,7 @@ import { buildPagefind } from "./pagefind";
 import { buildFlatbush } from "./flatbush";
 import { Asset } from "./types";
 import { registriesToRegcode } from "./utils";
-import { FOR_ARCHES, CHUNK_SIZE_CHARS, PUBLIC_MODELS } from "./config";
+import { FOR_ARCHES, CHUNK_SIZE_CHARS } from "./config";
 import { safeJsonParseFile, safeJsonParseFileSync, safeJoinPath } from "./safe-utils";
 import { assetFunctions } from "./assets";
 
@@ -73,7 +73,6 @@ async function loadGraphsFromDefinitions(definitionsDir: string, outputDir: stri
 function buildGraphMetadata(graph: staticTypes.StaticGraph): staticTypes.StaticGraphMeta {
     // Convert WASM object to plain JS object for property access
     const g = graph.toJSON();
-    console.log(g);
     return new staticTypes.StaticGraphMeta({
         author: g["author"],
         cards: (g["cards"] ?? []).length,
@@ -133,11 +132,12 @@ async function processGraphs(
         const wkrm = new WKRM(meta);
         const rmw = new ResourceModelWrapper(wkrm, graph, undefined, true);
         let publicationId;
+        const publicModels = assetFunctions.getPermittedModels()
 
         if (!includePrivate) {
             switch (type.toString()) {
                 case 'models':
-                    if (!PUBLIC_MODELS.includes(wkrm.modelClassName)) {
+                    if (!publicModels.includes(wkrm.modelClassName)) {
                         continue;
                     }
                     break;
@@ -262,7 +262,6 @@ async function generateResourceIndexes(
 ): Promise<void> {
     await fs.promises.mkdir(`${outputDir}/definitions/business_data`, {"recursive": true});
 
-    console.log('nidexes', assetMetadata.length);
     // Track resource summaries per graph for the index file
     const graphResourceSummaries: Map<string, Array<{name: string, resourceinstanceid: string}>> = new Map();
     const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphid));
@@ -483,7 +482,6 @@ export async function reindex(
 
     // 5. Copy reference data
     await copyReferenceData(models, outputDir, includePrivate);
-    console.log(models);
 
     // 6. Generate resource index files (always, regardless of mode)
     await generateResourceIndexes(assetMetadata, models, outputDir);
