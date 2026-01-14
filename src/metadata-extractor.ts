@@ -113,18 +113,14 @@ export class MetadataExtractor {
     if (this.config?.filters) {
       for (const filterConfig of this.config.filters) {
         if (filterConfig.graph === modelType) {
-          for (const [filterName, config] of Object.entries(filterConfig)) {
-            if (filterName === "graph") continue; // Skip the graph identifier
-            const rawValue = await getValueFromPath(staticAsset, config.path);
+            const rawValue = await getValueFromPath(displayAsset, filterConfig.path);
             let filterValue: string[];
-
-            if (config.type === "array") {
+            if (filterConfig.type === "array") {
               filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
             } else {
               filterValue = rawValue ? [rawValue] : [];
             }
-            meta.meta[filterName] = JSON.stringify(filterValue);
-          }
+            meta.meta[filterConfig.name] = JSON.stringify(filterValue);
         }
       }
     }
@@ -133,7 +129,6 @@ export class MetadataExtractor {
     if (this.config?.thumbnail) {
       console.log("Extracting thumbnail for model type:", modelType);
       for (const thumbConfig of this.config.thumbnail || []) {
-        console.log("Checking thumbnail config for graph:", thumbConfig);
         if (thumbConfig.graph === modelType || thumbConfig.graph === "*") {
           const thumbnailData = await getValueFromPath(displayAsset, thumbConfig.path);
           const identifiers = thumbConfig.identifier || [];
@@ -143,10 +138,8 @@ export class MetadataExtractor {
             for (const image of imageGroup?._ || []) {
               const name = await image.name;
               const nameLower = name?.toLowerCase() || '';
-              console.log("Checking image for thumbnail:", name);
               const match = identifiers.find((id: string) => nameLower.includes(id.toLowerCase()));
               if (match) {
-                console.log(`Found thumbnail: ${name} (matched identifier: ${match})`);
                 meta.meta.thumbnailName = name;
                 meta.meta.thumbnailAltText = await image.alt_text || '';
                 break;

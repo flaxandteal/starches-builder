@@ -20,6 +20,8 @@ const DEFAULT_PREBUILD_PATHS: PrebuildPaths = {
  * Configuration for a single filter that can be used in Pagefind search
  */
 interface FilterConfig {
+  /** The name of the filter */
+  name: string
   /** The modelClassName of the graph this filter applies to */
   graph: string
   /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */

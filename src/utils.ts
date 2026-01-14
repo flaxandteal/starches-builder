@@ -52,7 +52,11 @@ export function registriesToRegcode(registries: string[]) {
 
 export async function getValueFromPath(asset: any, path: string): Promise<any> {
   const segments = path.split(".");
-  async function get(value: any, key: string) {
+  async function get(value: any, key: string): Promise<any> {
+    if (Array.isArray(value)) {
+      const results = await Promise.all(value.map(item => get(item, key)));
+      return results.flat();
+    }
     if (value.__has) {
       if (!await value.__has(key)) {
         return undefined;

@@ -33,6 +33,7 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
     await assetFunctions.initialize();
     const publicModels = assetFunctions.getPermittedModels()
     const urls = new Set();
+    
     for (const asset of assetMetadata) {
         if (!includePrivate && !publicModels.includes(asset.type)) {
             unmappedModels.add(asset.type);
@@ -51,11 +52,13 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
         };
 
         // Add any configured custom filters
-        if (config?.filters) {
-            for (const filterName of Object.keys(config.filters)) {
+        if (config?.filters && Array.isArray(config.filters)) {
+            for (const filterConfig of config.filters) {
+                const filterName = filterConfig.name;
                 const filterValue = asset.meta[filterName]
                     ? safeJsonParse<string[]>(asset.meta[filterName], `asset ${asset.slug} ${filterName}`)
                     : [];
+                
                 filters[filterName] = filterValue;
             }
         }
