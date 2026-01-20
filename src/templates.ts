@@ -10,7 +10,7 @@ export class TemplateManager {
     registerHandlebarsHelpers();
     const templates = await Promise.all(Object.entries(config.indexTemplates).map(
       async ([mdl, file]: [string, string]): Promise<[string, HandlebarsTemplateDelegate<any>]> => {
-        let template = await fs.promises.readFile(`prebuild/indexTemplates/${file}`, { encoding: "utf8" })
+        const template = await fs.promises.readFile(`prebuild/indexTemplates/${file}`, { encoding: "utf8" })
         return [
           mdl,
           Handlebars.compile(template)

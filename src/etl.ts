@@ -6,6 +6,7 @@ import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
 // Import CLM to register display serializers for reference datatypes
 import '@alizarin/clm';
+import '@alizarin/filelist';
 
 // Set up tracing
 const tracer = tracing.getTracer('starches-builder', version);
@@ -145,6 +146,14 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     }
     resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');
     resource.metadata = meta.meta;
+
+    // Filter tiles to only include those that passed permission filtering
+    // The WASM wrapper only stores tiles that passed conditional permission rules
+    if (resource.tiles && asset.$.wasmWrapper) {
+      const permittedTileIds = new Set(asset.$.wasmWrapper.getAllTileIds());
+      resource.tiles = resource.tiles.filter((tile: any) => permittedTileIds.has(tile.tileid));
+    }
+
     const serial = JSON.stringify(resource, replacer, 2)
     const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;
     const safeFilePath = safeJoinPath(businessDataDir, `${meta.slug}.json`);

@@ -30,6 +30,8 @@ interface FilterConfig {
   type: "single" | "array"
   /** Optional list of all valid options (for frontend UI, even if not in data) */
   options?: string[]
+  /** Optional requirement to use dynamic asset instead of (faster) display-rendered static one */
+  dynamic?: boolean
 }
 
 interface ThumbnailConfig {

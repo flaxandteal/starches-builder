@@ -89,10 +89,10 @@ export class MetadataExtractor {
     );
     meta.meta["registries"] = "[]";
 
-    let template = this.templateManager.getTemplate(modelType);
+    const template = this.templateManager.getTemplate(modelType);
     // Use displayAsset for templates if provided (has display-friendly strings),
     // otherwise fall back to staticAsset
-    const templateData = staticAsset;
+    const templateData = displayAsset ?? staticAsset;
 
     const md = await template({ type: modelType, title: meta.meta.title, ha: templateData }, {
       allowProtoPropertiesByDefault: true,
@@ -113,12 +113,15 @@ export class MetadataExtractor {
     if (this.config?.filters) {
       for (const filterConfig of this.config.filters) {
         if (filterConfig.graph === modelType) {
-            const rawValue = await getValueFromPath(displayAsset, filterConfig.path);
+            const rawValue = await getValueFromPath(filterConfig.dynamic ? asset : displayAsset, filterConfig.path);
             let filterValue: string[];
             if (filterConfig.type === "array") {
               filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
             } else {
               filterValue = rawValue ? [rawValue] : [];
+            }
+            if (filterConfig.dynamic) {
+              filterValue = filterValue.map(fv => fv && fv.toString());
             }
             meta.meta[filterConfig.name] = JSON.stringify(filterValue);
         }
@@ -127,7 +130,6 @@ export class MetadataExtractor {
 
     // Thumbnail extraction
     if (this.config?.thumbnail) {
-      console.log("Extracting thumbnail for model type:", modelType);
       for (const thumbConfig of this.config.thumbnail || []) {
         if (thumbConfig.graph === modelType || thumbConfig.graph === "*") {
           const thumbnailData = await getValueFromPath(displayAsset, thumbConfig.path);

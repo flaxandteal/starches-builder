@@ -51,10 +51,16 @@ export function registriesToRegcode(registries: string[]) {
 }
 
 export async function getValueFromPath(asset: any, path: string): Promise<any> {
-  const segments = path.split(".");
+  let segments = path.split(".");
   async function get(value: any, key: string): Promise<any> {
     if (Array.isArray(value)) {
-      const results = await Promise.all(value.map(item => get(item, key)));
+      const results = await Promise.all(value.map(async (item) => {
+        const value = await item;
+        if (value === undefined) {
+          return value;
+        }
+        return get(value, key);
+      }));
       return results.flat();
     }
     if (value.__has) {
@@ -69,14 +75,31 @@ export async function getValueFromPath(asset: any, path: string): Promise<any> {
     // If it starts with a dot
     segments.shift();
   }
-  let headValue = asset;
-  let segment: string | undefined = segments.shift();
-  while (segment !== undefined && headValue) {
-    // TODO: this is only necessary to await at every step because we do not know whether the key is valid
-    headValue = await get(headValue, segment);
-    segment = segments.shift();
+  const results: any[] = [];
+  let multi: boolean = false;
+  async function descend(headValue: any, segments: string[]) {
+    let segment: string | undefined = segments.shift();
+    while (segment !== undefined && headValue) {
+      // TODO: this is only necessary to await at every step because we do not know whether the key is valid
+      if (segment === "*") {
+        multi = true;
+        return (await Promise.all(headValue.map(async (headSubvalue: any) => {
+          // const value = await headSubvalue;
+          // console.log(value, segments, value.constructor.name);
+          return descend(await headSubvalue, [...segments]);
+        }))).flat();
+      } else {
+        headValue = await get(await headValue, segment);
+      }
+      segment = segments.shift();
+    }
+    if (headValue !== undefined) {
+      results.push(headValue);
+    }
+    return segments;
   }
-  return segments.length ? undefined : headValue;
+  segments = await descend(asset, segments);
+  return segments.length ? undefined : (multi ? results : results[0]);
 }
 
 // Handlebars setup
