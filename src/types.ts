@@ -40,7 +40,7 @@ interface ThumbnailConfig {
   /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
   path: string
   /** The value that will be present in the image name to identify the thumbnail */
-  identifier: string[]
+  identifier?: string[]
 }
 
 interface GraphConfiguration {

@@ -53,21 +53,10 @@ export function registriesToRegcode(registries: string[]) {
 export async function getValueFromPath(asset: any, path: string): Promise<any> {
   let segments = path.split(".");
   async function get(value: any, key: string): Promise<any> {
-    if (Array.isArray(value)) {
-      const results = await Promise.all(value.map(async (item) => {
-        const value = await item;
-        if (value === undefined) {
-          return value;
-        }
-        return get(value, key);
-      }));
-      return results.flat();
-    }
-    if (value.__has) {
-      if (!await value.__has(key)) {
-        return undefined;
-      }
-      return value[key];
+    if (key !== "_" && Array.isArray(value)) {
+      const results: any[] = (await Promise.all(value)).flat();
+      const result: any = results[Number(key)];
+      return result;
     }
     return value[key];
   }

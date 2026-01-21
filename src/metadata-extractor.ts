@@ -99,9 +99,10 @@ export class MetadataExtractor {
       allowProtoMethodsByDefault: true,
     });
     const [indexOnly, description] = md.split('$$$');
-    const plaintext = await new Marked({ gfm: true })
+    const plaintext = (await new Marked({ gfm: true })
       .use(markedPlaintify())
-      .parse(indexOnly);
+      .parse(indexOnly))
+      .replace("\n", " ");
     meta.content = plaintext.substring(0, 300);
     if (description) {
       meta.meta.rawContent = description;
@@ -132,19 +133,27 @@ export class MetadataExtractor {
     if (this.config?.thumbnail) {
       for (const thumbConfig of this.config.thumbnail || []) {
         if (thumbConfig.graph === modelType || thumbConfig.graph === "*") {
-          const thumbnailData = await getValueFromPath(displayAsset, thumbConfig.path);
-          const identifiers = thumbConfig.identifier || [];
+          const thumbnailData = await getValueFromPath(asset, thumbConfig.path);
+          const identifiers = thumbConfig.identifier || null;
 
           // Find first image whose name contains one of the identifiers
           for (const imageGroup of thumbnailData || []) {
             for (const image of imageGroup?._ || []) {
-              const name = await image.name;
-              const nameLower = name?.toLowerCase() || '';
-              const match = identifiers.find((id: string) => nameLower.includes(id.toLowerCase()));
-              if (match) {
-                meta.meta.thumbnailName = name;
+              const url = await image.url;
+              const nameLower = (await image.name).toLowerCase();
+              if (identifiers === null) {
+                if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
+                  //RMV
+                }
+                meta.meta.thumbnailUrl = url;
                 meta.meta.thumbnailAltText = await image.alt_text || '';
-                break;
+              } else {
+                const match = identifiers.find((id: string) => nameLower.includes(id.toLowerCase()));
+                if (match) {
+                  meta.meta.thumbnailUrl = url;
+                  meta.meta.thumbnailAltText = await image.alt_text || '';
+                  break;
+                }
               }
             }
           }
