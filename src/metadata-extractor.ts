@@ -138,22 +138,11 @@ export class MetadataExtractor {
 
           // Find first image whose name contains one of the identifiers
           for (const imageGroup of thumbnailData || []) {
-            for (const image of imageGroup?._ || []) {
-              const url = await image.url;
-              const nameLower = (await image.name).toLowerCase();
-              if (identifiers === null) {
-                if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
-                  //RMV
-                }
+            if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
+              const url = await imageGroup._.thumbnail[0].url || await imageGroup[0].url;
+              if (url) {
                 meta.meta.thumbnailUrl = url;
-                meta.meta.thumbnailAltText = await image.alt_text || '';
-              } else {
-                const match = identifiers.find((id: string) => nameLower.includes(id.toLowerCase()));
-                if (match) {
-                  meta.meta.thumbnailUrl = url;
-                  meta.meta.thumbnailAltText = await image.alt_text || '';
-                  break;
-                }
+                meta.meta.thumbnailAltText = await imageGroup.alt_text || '';
               }
             }
           }

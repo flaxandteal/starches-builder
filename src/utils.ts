@@ -50,11 +50,11 @@ export function registriesToRegcode(registries: string[]) {
   }, 0);
 }
 
-export async function getValueFromPath(asset: any, path: string): Promise<any> {
+export async function getValueFromPath(asset: any, path: string, disp=false): Promise<any> {
   let segments = path.split(".");
   async function get(value: any, key: string): Promise<any> {
     if (key !== "_" && Array.isArray(value)) {
-      const results: any[] = (await Promise.all(value)).flat();
+      const results: any[] = (await Promise.all(value));
       const result: any = results[Number(key)];
       return result;
     }

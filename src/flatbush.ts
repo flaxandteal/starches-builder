@@ -21,7 +21,7 @@ export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir
         fgbSerialize(geoJsonAll)
     );
 
-    // Re-index using WASM instead of external binary
+    // Re-index using napi instead of external binary
     await reindexFgb(
         `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
         `${outputDir}/fgb/nihed-assets.fgb`,

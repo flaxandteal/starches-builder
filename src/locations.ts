@@ -28,9 +28,13 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
         if (asset.meta && asset.meta.location && (includePrivate || publicModels.includes(asset.type))) {
             {
                 const loc = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
+
+                // TODO: find a less application-tied way to configure these
                 const registries = asset.meta.registries ? safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`) : [];
                 const designations = asset.meta.designations ? safeJsonParse<string[]>(asset.meta.designations, `asset ${asset.slug} designations`) : [];
+                const category: string | undefined = asset.meta.Category ? safeJsonParse<string[]>(asset.meta.Category, `asset ${asset.slug} categories`)[0] : undefined;
                 const regcode = registriesToRegcode(registries);
+
                 const language = DEFAULT_LANGUAGE ?? "en";
                 const hash = hashes[asset.meta.slug];
                 if (!hash) {
@@ -47,6 +51,7 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
                         content: asset.content,
                         language: language,
                         regcode: regcode,
+                        category: category,
                         filters: {
                             tags: registries,
                             designations: designations
