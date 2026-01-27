@@ -140,9 +140,12 @@ export class MetadataExtractor {
           for (const imageGroup of thumbnailData || []) {
             if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
               const url = await imageGroup._.thumbnail[0].url || await imageGroup[0].url;
-              if (url) {
+              // If there is no index, this should not be shown.
+              const index = await imageGroup._.thumbnail[0]._file.index;
+              if (url && Number.isInteger(index)) {
                 meta.meta.thumbnailUrl = url;
                 meta.meta.thumbnailAltText = await imageGroup.alt_text || '';
+                break;
               }
             }
           }
