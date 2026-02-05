@@ -32,6 +32,10 @@ interface FilterConfig {
   options?: string[]
   /** Optional requirement to use dynamic asset instead of (faster) display-rendered static one */
   dynamic?: boolean
+  /** Optional default character count to trim the index entries to for free-text search */
+  indexCharacters?: number
+  /** Optional whether to trim or only warn */
+  indexCharactersWarnOnly?: boolean
 }
 
 interface ThumbnailConfig {

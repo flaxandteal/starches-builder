@@ -103,7 +103,15 @@ export class MetadataExtractor {
       .use(markedPlaintify())
       .parse(indexOnly))
       .replace("\n", " ");
-    meta.content = plaintext.substring(0, 300);
+    const maxChars = this.config?.indexCharacters || 300;
+    if (this.config?.indexCharactersWarnOnly) {
+      if (plaintext.length > maxChars) {
+        console.warn(`${slug}: ${displayName} has > ${maxChars} characters - length ${plaintext.length}`);
+      }
+      meta.content = plaintext;
+    } else {
+      meta.content = plaintext.substring(0, this.config?.indexCharacters || 300);
+    }
     if (description) {
       meta.meta.rawContent = description;
     } else {
