@@ -50,47 +50,6 @@ export function registriesToRegcode(registries: string[]) {
   }, 0);
 }
 
-export async function getValueFromPath(asset: any, path: string, disp=false): Promise<any> {
-  let segments = path.split(".");
-  async function get(value: any, key: string): Promise<any> {
-    if (key !== "_" && Array.isArray(value)) {
-      const results: any[] = (await Promise.all(value));
-      const result: any = results[Number(key)];
-      return result;
-    }
-    return value[key];
-  }
-  if (segments[0] == "") {
-    // If it starts with a dot
-    segments.shift();
-  }
-  const results: any[] = [];
-  let multi: boolean = false;
-  async function descend(headValue: any, segments: string[]) {
-    let segment: string | undefined = segments.shift();
-    while (segment !== undefined && headValue) {
-      // TODO: this is only necessary to await at every step because we do not know whether the key is valid
-      if (segment === "*") {
-        multi = true;
-        return (await Promise.all(headValue.map(async (headSubvalue: any) => {
-          // const value = await headSubvalue;
-          // console.log(value, segments, value.constructor.name);
-          return descend(await headSubvalue, [...segments]);
-        }))).flat();
-      } else {
-        headValue = await get(await headValue, segment);
-      }
-      segment = segments.shift();
-    }
-    if (headValue !== undefined) {
-      results.push(headValue);
-    }
-    return segments;
-  }
-  segments = await descend(asset, segments);
-  return segments.length ? undefined : (multi ? results : results[0]);
-}
-
 // Handlebars setup
 export function registerHandlebarsHelpers(): void {
   Handlebars.registerHelper("replace", (base, fm, to) => base ? base.replaceAll(fm, to) : base);

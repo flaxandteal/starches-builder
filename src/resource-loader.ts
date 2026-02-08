@@ -139,11 +139,11 @@ export class ResourceLoader {
     }
 
     display.log(`Finding ${resourceList.length} resources...`);
-    // Debug: check cache state before find calls
-    display.log(`Cache size: ${staticStore.cache?.size || 'N/A'}, cacheMetadataOnly: ${(staticStore as any).cacheMetadataOnly}`);
+    // Debug: check registry state before find calls
+    display.log(`Registry size: ${staticStore.registry.length}`);
     if (resourceList.length > 0) {
       const firstId = resourceList[0].resourceinstance.resourceinstanceid;
-      const cached = staticStore.cache?.get(firstId);
+      const cached = staticStore.registry.getFull(firstId);
       display.log(`First resource ${firstId} cached as: ${cached?.constructor?.name || 'not found'}`);
     }
 

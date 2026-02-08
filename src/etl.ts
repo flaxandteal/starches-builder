@@ -3,7 +3,7 @@ import * as fs from "fs";
 import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
-import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
+import { version, slugify, staticTypes, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
 // Import CLM to register display serializers for reference datatypes
 import '@alizarin/clm';
 import '@alizarin/filelist';
@@ -76,7 +76,6 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
     archesClient.fs = fs;
     graphManager.archesClient = archesClient;
     staticStore.archesClient = archesClient;
-    staticStore.cacheMetadataOnly = false;
     RDM.archesClient = archesClient;
     return graphManager;
 }
@@ -127,23 +126,93 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     await fs.promises.mkdir(`${PUBLIC_FOLDER}/definitions/business_data`, {"recursive": true});
     const resource = asset.$.resource;
 
-    const cache = await tracer.startActiveSpan('getValueCache', async () => {
-      return await asset.$.getValueCache(true, async (value: interfaces.IViewModel) => {
-        if (value instanceof viewModels.ResourceInstanceViewModel) {
-          const meta = await assetFunctions.getMeta(await value, await value, undefined, includePrivate);
-          return {
-            title: meta.meta.title,
-            slug: meta.meta.slug,
-            location: meta.meta.location,
-            type: meta.type,
+    // Build cache in getValueCache format: {tileId: {nodeId: entry}}
+    // Entry formats:
+    // - resource-instance: {datatype, id, type, graphId, title}
+    // - resource-instance-list: {datatype, _: [...entries...], meta}
+    type SingleCacheEntry = {datatype: string, id: string, type: string, graphId: string, title?: string, meta?: any};
+    type ListCacheEntry = {datatype: string, _: SingleCacheEntry[], meta?: any};
+    type CacheEntry = SingleCacheEntry | ListCacheEntry;
+
+    // First pass: collect all entries per tile/node (since resource-instance-list can have multiple)
+    const collectedEntries: Record<string, Record<string, SingleCacheEntry[]>> = {};
+
+    if (resource.tiles) {
+      for (const tile of resource.tiles) {
+        if (tile.data) {
+          for (const [nodeId, value] of Object.entries(tile.data)) {
+            // Handle resource-instance and resource-instance-list data format: [{resourceId: "..."}]
+            if (Array.isArray(value)) {
+              for (const entry of value) {
+                if (entry && typeof entry === 'object' && 'resourceId' in entry) {
+                  const refId = entry.resourceId;
+                  // Look up in staticStore registry
+                  const cached = staticStore.registry.getFull(refId) || staticStore.registry.getSummary(refId);
+                  if (cached) {
+                    const meta = cached.resourceinstance || cached;
+                    const graphId = meta.graph_id;
+                    // Get model class name from graphManager if available
+                    const wkrm = [...graphManager.wkrms.values()].find((w: any) => w.graphId === graphId);
+                    const modelClassName = wkrm?.modelClassName || graphId;
+
+                    // Initialize tile/node entry if needed
+                    if (!collectedEntries[tile.tileid]) {
+                      collectedEntries[tile.tileid] = {};
+                    }
+                    if (!collectedEntries[tile.tileid][nodeId]) {
+                      collectedEntries[tile.tileid][nodeId] = [];
+                    }
+                    // Collect all entries (don't dedupe - order matters)
+                    collectedEntries[tile.tileid][nodeId].push({
+                      datatype: 'resource-instance',
+                      id: refId,
+                      type: modelClassName,
+                      graphId: graphId,
+                      title: meta.name || meta.descriptors?.name || undefined,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Second pass: convert to proper cache format based on entry count
+    const newCache: Record<string, Record<string, CacheEntry>> = {};
+    for (const [tileId, nodeEntries] of Object.entries(collectedEntries)) {
+      newCache[tileId] = {};
+      for (const [nodeId, entries] of Object.entries(nodeEntries)) {
+        if (entries.length === 1) {
+          // Single entry - use resource-instance format
+          newCache[tileId][nodeId] = entries[0];
+        } else if (entries.length > 1) {
+          // Multiple entries - use resource-instance-list format
+          newCache[tileId][nodeId] = {
+            datatype: 'resource-instance-list',
+            _: entries,
+            meta: {},
           };
         }
-      });
-    });
-
-    if (cache && Object.values(cache).length > 0) {
-      resource.__cache = cache;
+      }
     }
+
+    // Set __cache if we found any related resources
+    // Merge with existing cache (new entries win for conflicts)
+    if (Object.keys(newCache).length > 0) {
+      const existingCache = (resource.__cache || {}) as Record<string, Record<string, CacheEntry>>;
+      for (const [tileId, nodeEntries] of Object.entries(newCache)) {
+        if (!existingCache[tileId]) {
+          existingCache[tileId] = {};
+        }
+        for (const [nodeId, entry] of Object.entries(nodeEntries)) {
+          existingCache[tileId][nodeId] = entry;
+        }
+      }
+      resource.__cache = existingCache;
+    }
+
     resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');
     resource.metadata = meta.meta;
 

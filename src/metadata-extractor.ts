@@ -1,6 +1,6 @@
 import { Marked } from 'marked'
+import { getValueFromPath } from "alizarin";
 import markedPlaintify from 'marked-plaintify'
-import { getValueFromPath } from "./utils";
 import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
 import type { PrebuildConfiguration } from "./types";
 import type { SlugGenerator } from "./slug-generator";

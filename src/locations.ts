@@ -7,6 +7,13 @@ import * as pagefind from "pagefind";
 import { safeJsonParse } from './safe-utils';
 import { assetFunctions } from "./assets";
 
+/** Strip undefined values from an object (flatgeobuf can't serialize undefined) */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(
+        Object.entries(obj).filter(([_, v]) => v !== undefined)
+    ) as T;
+}
+
 
 export async function getLocations(index: pagefind.PagefindIndex, assetMetadata: Asset[], includePrivate: boolean=false): Promise<[IndexEntry, Feature][]> {
     const catalogue = await index.getIndexCatalogue();
@@ -42,22 +49,27 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
                     return undefined;
                 }
                 if (Array.isArray(loc)) {
-                  const feature: Feature = {
-                    id: hash,
-                    type: 'Feature',
-                    properties: {
+                  // Build properties, excluding undefined values (flatgeobuf can't serialize undefined)
+                  const properties: Record<string, unknown> = {
                         url: `/asset/?slug=${asset.meta.slug}`,
                         // Only taking a bit of the plaintext for now... RMV
-                        content: asset.content,
+                        content: asset.content ?? null,
                         language: language,
                         regcode: regcode,
-                        category: category,
                         filters: {
                             tags: registries,
                             designations: designations
                         },
-                        meta: asset.meta
-                    },
+                        meta: stripUndefined(asset.meta ?? {})
+                  };
+                  // Only include category if defined
+                  if (category !== undefined) {
+                      properties.category = category;
+                  }
+                  const feature: Feature = {
+                    id: hash,
+                    type: 'Feature',
+                    properties,
                     geometry: {
                         type: 'Point',
                         coordinates: loc
