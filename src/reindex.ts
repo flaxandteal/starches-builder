@@ -3,7 +3,7 @@ import path from "path";
 import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
-import { WKRM, ResourceModelWrapper, slugify, staticTypes } from 'alizarin';
+import { WKRM, ResourceModelWrapper, slugify, staticTypes } from 'alizarin/inline';
 
 import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
@@ -111,7 +111,8 @@ function buildGraphMetadata(graph: staticTypes.StaticGraph): staticTypes.StaticG
 async function processGraphs(
     graphs: GraphInfo[],
     destination: string,
-    includePrivate: boolean
+    includePrivate: boolean,
+    minify: boolean=false
 ): Promise<{
     models: ResourceModelWrapper<any>[],
     branches: Set<string>,
@@ -175,7 +176,7 @@ async function processGraphs(
         await fs.promises.writeFile(`${target}/${filename}`, JSON.stringify({
             graph: [prunedGraph.toJSON()],
             __scope: ['public']
-        }, undefined, 2));
+        }, undefined, minify ? undefined : 2));
 
         if (type === "models") {
             models.push(rmw);
@@ -193,7 +194,8 @@ async function processGraphs(
 async function copyReferenceData(
     models: ResourceModelWrapper<any>[],
     outputDir: string,
-    includePrivate: boolean
+    includePrivate: boolean,
+    minify: boolean=false
 ): Promise<void> {
     const collections = 'prebuild/reference_data/collections';
 
@@ -225,7 +227,7 @@ async function copyReferenceData(
                 }
                 return fs.promises.writeFile(
                     `${outputDir}/definitions/reference_data/collections/${collectionId}.json`,
-                    JSON.stringify(collection, undefined, 2),
+                    JSON.stringify(collection, undefined, minify ? undefined : 2),
                 );
             });
         }).flat())).length;
@@ -303,7 +305,7 @@ async function generateResourceIndexes(
         };
         return fs.promises.writeFile(
             `${outputDir}/definitions/business_data/_${graphId}.json`,
-            JSON.stringify(indexData, null, 2)
+            JSON.stringify(indexData, null, minify ? undefined : 2)
         );
     }));
 
@@ -451,7 +453,8 @@ export async function reindex(
     files: string[] | null,
     definitionsDir: string,
     outputDir: string,
-    includePrivate: boolean = false
+    includePrivate: boolean = false,
+    minify: boolean=false
 ): Promise<void> {
     // 1. Build search index and get locations
     const { index, assetMetadata } = await buildPagefind(files, outputDir, includePrivate);
@@ -471,7 +474,8 @@ export async function reindex(
     const { models, branches, branchesFound, allMeta } = await processGraphs(
         graphs,
         `${outputDir}/definitions`,
-        includePrivate
+        includePrivate,
+        minify
     );
 
     // 4. Write graph metadata
@@ -481,7 +485,7 @@ export async function reindex(
     );
 
     // 5. Copy reference data
-    await copyReferenceData(models, outputDir, includePrivate);
+    await copyReferenceData(models, outputDir, includePrivate, minify);
 
     // 6. Generate resource index files (always, regardless of mode)
     await generateResourceIndexes(assetMetadata, models, outputDir);

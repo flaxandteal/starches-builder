@@ -3,7 +3,7 @@ import * as fs from "fs";
 import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
-import { version, slugify, staticTypes, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin';
+import { version, slugify, staticTypes, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin/inline';
 // Import CLM to register display serializers for reference datatypes
 import '@alizarin/clm';
 import '@alizarin/filelist';
@@ -81,7 +81,7 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
 }
 
 let warned = false;
-async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false): Promise<Asset | null> {
+async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false, minify: boolean=false): Promise<Asset | null> {
   return tracer.startActiveSpan('processAsset', async (span) => {
     const asset = await assetPromise;
     span.setAttribute('asset.id', asset.id || 'unknown');
@@ -223,7 +223,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
       resource.tiles = resource.tiles.filter((tile: any) => permittedTileIds.has(tile.tileid));
     }
 
-    const serial = JSON.stringify(resource, replacer, 2)
+    const serial = JSON.stringify(resource, replacer, minify ? undefined : 2)
     const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;
     const safeFilePath = safeJoinPath(businessDataDir, `${meta.slug}.json`);
     await fs.promises.writeFile(safeFilePath, serial);
@@ -250,7 +250,7 @@ function extractFeatures(geoJsonString: string): Feature[] {
   return [feature];
 }
 
-async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false) {
+async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
     await graphManager.initialize({ graphs: null, defaultAllowAllNodegroups: includePrivate });
     // Pass includePrivate to get() so the model is created with correct default permissions
     const Registry = await graphManager.get("Registry", includePrivate);
@@ -296,7 +296,7 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
         progress('batch-processing', 'Processing assets', totalProcessed, totalProcessed + 100); // Estimate
 
         let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
-          const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate)));
+          const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate, minify)));
           return results.filter(a => a !== null);
         });
 
@@ -383,7 +383,7 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     return Promise.all(promises);
 }
 
-async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false) {
+async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
   const graphs = await ensureAssetFunctionsInitialized();
 
   let resourceFiles = [];
@@ -429,7 +429,7 @@ async function buildOnePreindex(resourceFile: string, resourcePrefix: string, in
     }
   }
   const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models || {});
-  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate, lazy);
+  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate, lazy, minify);
 }
 
 // Helper to log to either progress display or console
@@ -444,7 +444,7 @@ function progress(id: string, label: string, current: number, total: number) {
   display.progress(id, label, current, total);
 }
 
-export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false) {
+export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false, minify: boolean=false) {
   if (!resourceFile.endsWith('.json')) {
     console.error(`Tried to run with a non .json file: ${resourceFile}`);
     process.exit(1);
@@ -459,7 +459,7 @@ export async function etl(resourceFile: string, resourcePrefix: string | undefin
 
   try {
     log("Pre-indexing " + resourceFile);
-    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy);
+    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy, minify);
 
     if (useTui) {
       getProgressDisplay().finish();

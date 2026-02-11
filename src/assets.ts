@@ -1,6 +1,6 @@
 import { Asset, ModelEntry } from "./types";
 import type { IAssetFunctions, GraphConfiguration, PrebuildConfiguration } from "./types";
-import { GraphManager } from 'alizarin';
+import { GraphManager } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { PermissionManager } from './permissions';
 import { TemplateManager } from './templates';

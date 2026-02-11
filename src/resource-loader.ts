@@ -1,4 +1,4 @@
-import { GraphManager, staticStore, staticTypes } from 'alizarin';
+import { GraphManager, staticStore, staticTypes } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { getProgressDisplay } from './progress';
 import type { ModelEntry } from "./types";

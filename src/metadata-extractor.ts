@@ -1,5 +1,5 @@
 import { Marked } from 'marked'
-import { getValueFromPath } from "alizarin";
+import { getValueFromPath } from "alizarin/inline";
 import markedPlaintify from 'marked-plaintify'
 import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
 import type { PrebuildConfiguration } from "./types";

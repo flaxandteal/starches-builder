@@ -1,7 +1,7 @@
 import "../scripts/setup-pagefind-env.js";
 import fs from "fs";
 import * as pagefind from "pagefind";
-import { slugify } from 'alizarin';
+import { slugify } from 'alizarin/inline';
 import { REGISTRIES } from "./utils";
 import { DEFAULT_LANGUAGE } from "./config";
 import { safeJsonParse, safeJsonParseFile } from './safe-utils';
