@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from "fs";
-import * as Handlebars from 'handlebars';
+import Handlebars from 'handlebars';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { validatePathWithinBase } from './safe-utils';
