@@ -2,7 +2,7 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { cli_index, cli_etl } from './cli/index.ts';
+import { cli_index, cli_etl, cli_precompile } from './cli/index.ts';
 import { init } from './init.ts';
 import { version as alizarinVersion } from 'alizarin/inline';
 
@@ -97,6 +97,11 @@ yargs(hideBin(process.argv))
       })
   }, async (argv) => {
     await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.minify as boolean);
+  })
+  .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
+    return yargs
+  }, async (argv) => {
+    await cli_precompile();
   })
   .help()
   .fail((msg, err, yargs) => {

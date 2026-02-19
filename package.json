@@ -82,6 +82,7 @@
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",
     "geojson": "^0.5.0",
+    "handlebars": "^4.7.8",
     "marked": "^17.0.1",
     "marked-plaintify": "^1.1.1",
     "pagefind": "https://github.com/flaxandteal/pagefind/releases/download/v1.3.0-map-compatibility.5/pagefind-node-wrapper-v1.3.0-map-compatibility.5.tar.gz",

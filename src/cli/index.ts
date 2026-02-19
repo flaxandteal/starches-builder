@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { reindex } from "../reindex.ts";
 import { etl } from "../etl.ts";
+import { precompileTemplates } from "../precompile-templates.ts";
 
 export async function cli_index(definitions: string, preIndexDirectory: string, site: string, includePrivate: boolean, minify: boolean) {
   const preIndexFiles: string[] = [];
@@ -28,4 +29,8 @@ export async function cli_index(definitions: string, preIndexDirectory: string, 
 
 export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false, lazy: boolean = false, summary: boolean = false, minify: boolean = false) {
   return etl(resourceFile, resourcePrefix, includePrivate, useTui, lazy, summary, minify);
+}
+
+export async function cli_precompile() {
+  return precompileTemplates();
 }
