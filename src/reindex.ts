@@ -3,7 +3,7 @@ import path from "path";
 import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
-import { WKRM, ResourceModelWrapper, slugify, staticTypes } from 'alizarin/inline';
+import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin/inline';
 
 import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
@@ -260,13 +260,14 @@ async function copyReferenceData(
 async function generateResourceIndexes(
     assetMetadata: Asset[],
     models: ResourceModelWrapper<any>[],
-    outputDir: string
+    outputDir: string,
+    minify: boolean=false
 ): Promise<void> {
     await fs.promises.mkdir(`${outputDir}/definitions/business_data`, {"recursive": true});
 
     // Track resource summaries per graph for the index file
     const graphResourceSummaries: Map<string, Array<{name: string, resourceinstanceid: string}>> = new Map();
-    const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphid));
+    const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphId));
 
     await Promise.all(assetMetadata.map(async (asset) => {
         const businessDataDir = 'docs/definitions/business_data';
@@ -291,8 +292,12 @@ async function generateResourceIndexes(
             graphResourceSummaries.set(graphId, []);
         }
         graphResourceSummaries.get(graphId)!.push({
-            name: asset.meta.title || '',
-            resourceinstanceid: asset.meta.resourceinstanceid
+            resourceinstance: {
+                name: asset.meta.title || '',
+                resourceinstanceid: asset.meta.resourceinstanceid,
+                descriptors: {},
+                graph_id: graphId
+            }
         });
     }));
 
@@ -488,7 +493,7 @@ export async function reindex(
     await copyReferenceData(models, outputDir, includePrivate, minify);
 
     // 6. Generate resource index files (always, regardless of mode)
-    await generateResourceIndexes(assetMetadata, models, outputDir);
+    await generateResourceIndexes(assetMetadata, models, outputDir, minify);
 
     // 7. Generate format-specific outputs
     if (FOR_ARCHES) {

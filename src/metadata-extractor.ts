@@ -117,6 +117,8 @@ export class MetadataExtractor {
     } else {
       meta.meta.rawContent = md;
     }
+    meta.meta.resourceinstanceid = asset.$.resource.resourceinstance.resourceinstanceid;
+      
 
     // Extract configured filters from node data
     if (this.config?.filters) {
