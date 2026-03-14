@@ -266,7 +266,7 @@ async function generateResourceIndexes(
     await fs.promises.mkdir(`${outputDir}/definitions/business_data`, {"recursive": true});
 
     // Track resource summaries per graph for the index file
-    const graphResourceSummaries: Map<string, Array<{name: string, resourceinstanceid: string}>> = new Map();
+    const graphResourceSummaries: Map<string, Array<{resourceinstance: {name: string, resourceinstanceid: string, descriptors: {name: string, slug: string}, graph_id: string}}>> = new Map();
     const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphId));
 
     await Promise.all(assetMetadata.map(async (asset) => {
@@ -295,7 +295,10 @@ async function generateResourceIndexes(
             resourceinstance: {
                 name: asset.meta.title || '',
                 resourceinstanceid: asset.meta.resourceinstanceid,
-                descriptors: {},
+                descriptors: {
+                    name: asset.meta.title || '',
+                    slug: asset.slug,
+                },
                 graph_id: graphId
             }
         });
@@ -469,6 +472,32 @@ export async function reindex(
 
     if (assetMetadata.length === 0) {
         console.warn("No asset metadata was found");
+    }
+
+    // 1b. Validate uniqueness of slugs and resource instance IDs
+    const slugsSeen = new Map<string, string>();  // slug -> resourceinstanceid (for error context)
+    const idsSeen = new Map<string, string>();    // resourceinstanceid -> slug (for error context)
+    const duplicates: string[] = [];
+
+    for (const asset of assetMetadata) {
+        const slug = asset.slug;
+        const id = asset.meta.resourceinstanceid;
+
+        if (slug && slugsSeen.has(slug)) {
+            duplicates.push(`Duplicate slug "${slug}": resources ${slugsSeen.get(slug)} and ${id}`);
+        } else if (slug) {
+            slugsSeen.set(slug, id);
+        }
+
+        if (id && idsSeen.has(id)) {
+            duplicates.push(`Duplicate resourceinstanceid "${id}": slugs ${idsSeen.get(id)} and ${slug}`);
+        } else if (id) {
+            idsSeen.set(id, slug);
+        }
+    }
+
+    if (duplicates.length > 0) {
+        throw new Error(`Uniqueness violations found:\n  ${duplicates.join('\n  ')}`);
     }
 
     // 2. Load and prepare graphs

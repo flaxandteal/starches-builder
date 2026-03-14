@@ -74,7 +74,8 @@ export class MetadataExtractor {
       location = null;
     }
 
-    const slug = await this.slugGenerator.toSlug(displayName, asset, prefix);
+    const slug = asset.$.resource.resourceinstance?.descriptors?.slug
+      || await this.slugGenerator.toSlug(displayName, asset, prefix);
     const graphId = asset.__.wkrm.graphId;
     const meta = new Asset(
       staticAsset.id,
