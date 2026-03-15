@@ -127,6 +127,7 @@ async function processGraphs(
     for (const {type, filepath, graph, location} of graphs) {
         const target = `${destination}/graphs/${path.basename(location)}`;
         const filename = path.basename(filepath);
+
         // Build metadata first - WKRM expects StaticGraphMeta (with counts), not full StaticGraph (with arrays)
         const meta = buildGraphMetadata(graph);
         // Ensure clean plain object for WASM deserialization
