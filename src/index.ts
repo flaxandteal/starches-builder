@@ -2,9 +2,9 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { cli_index, cli_etl } from './cli/index.ts';
+import { cli_index, cli_etl, cli_precompile } from './cli/index.ts';
 import { init } from './init.ts';
-import { version as alizarinVersion } from 'alizarin';
+import { version as alizarinVersion } from 'alizarin/inline';
 
 // Version injected at build time by tsup
 declare const __STARCHES_BUILDER_VERSION__: string;
@@ -54,8 +54,13 @@ yargs(hideBin(process.argv))
         description: "output directory for the site (usu. public or docs)",
         demandOption: true
       })
+      .option("minify", {
+        description: "output individual JSONs without unnecessary whitespace",
+        type: "boolean",
+        default: false
+      })
   }, async (argv) => {
-    await cli_index(argv.definitions as string, argv.preindex as string, argv.site as string, argv.includePrivate as boolean);
+    await cli_index(argv.definitions as string, argv.preindex as string, argv.site as string, argv.includePrivate as boolean, argv.minify as boolean);
   })
   .command(["etl"], "build Alizarin-compatible JSON from Arches data", function (yargs) {
     return yargs
@@ -85,8 +90,18 @@ yargs(hideBin(process.argv))
         type: "boolean",
         default: false
       })
+      .option("minify", {
+        description: "output individual JSONs without unnecessary whitespace",
+        type: "boolean",
+        default: false
+      })
   }, async (argv) => {
-    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean);
+    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.minify as boolean);
+  })
+  .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
+    return yargs
+  }, async (argv) => {
+    await cli_precompile();
   })
   .help()
   .fail((msg, err, yargs) => {

@@ -1,6 +1,6 @@
 import { Asset, ModelEntry } from "./types";
 import type { IAssetFunctions, GraphConfiguration, PrebuildConfiguration } from "./types";
-import { GraphManager } from 'alizarin';
+import { GraphManager } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { PermissionManager } from './permissions';
 import { TemplateManager } from './templates';
@@ -23,8 +23,12 @@ class AssetFunctions implements IAssetFunctions {
     this.permissionManager = new PermissionManager();
     this.templateManager = new TemplateManager();
     this.slugGenerator = new SlugGenerator();
-    this.metadataExtractor = new MetadataExtractor(this.slugGenerator);
+    this.metadataExtractor = new MetadataExtractor(this.slugGenerator, this.templateManager);
     this.resourceLoader = new ResourceLoader(this.permissionManager);
+  }
+
+  getPermittedModels() {
+    return this.permissionManager.getPermittedModels();
   }
 
   getPermittedNodegroups(modelName: string) {
@@ -52,11 +56,11 @@ class AssetFunctions implements IAssetFunctions {
     return this.slugGenerator.toSlug(title, staticAsset, prefix);
   }
 
-  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, includePrivate: boolean): Promise<Asset> {
-    return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate);
+  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, includePrivate: boolean, displayAsset?: any): Promise<Asset> {
+    return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate, displayAsset);
   }
 
-  async getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false) {
+  getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
     return this.resourceLoader.getAllFrom(graphManager, filename, includePrivate, this.getModelFiles(), lazy);
   }
 

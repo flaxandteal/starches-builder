@@ -3,7 +3,7 @@ import path from "path";
 import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
-import { WKRM, ResourceModelWrapper, slugify, staticTypes } from 'alizarin';
+import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin/inline';
 
 import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
@@ -11,7 +11,7 @@ import { buildPagefind } from "./pagefind";
 import { buildFlatbush } from "./flatbush";
 import { Asset } from "./types";
 import { registriesToRegcode } from "./utils";
-import { FOR_ARCHES, CHUNK_SIZE_CHARS, PUBLIC_MODELS } from "./config";
+import { FOR_ARCHES, CHUNK_SIZE_CHARS } from "./config";
 import { safeJsonParseFile, safeJsonParseFileSync, safeJoinPath } from "./safe-utils";
 import { assetFunctions } from "./assets";
 
@@ -73,7 +73,6 @@ async function loadGraphsFromDefinitions(definitionsDir: string, outputDir: stri
 function buildGraphMetadata(graph: staticTypes.StaticGraph): staticTypes.StaticGraphMeta {
     // Convert WASM object to plain JS object for property access
     const g = graph.toJSON();
-    console.log(g);
     return new staticTypes.StaticGraphMeta({
         author: g["author"],
         cards: (g["cards"] ?? []).length,
@@ -112,7 +111,8 @@ function buildGraphMetadata(graph: staticTypes.StaticGraph): staticTypes.StaticG
 async function processGraphs(
     graphs: GraphInfo[],
     destination: string,
-    includePrivate: boolean
+    includePrivate: boolean,
+    minify: boolean=false
 ): Promise<{
     models: ResourceModelWrapper<any>[],
     branches: Set<string>,
@@ -127,17 +127,19 @@ async function processGraphs(
     for (const {type, filepath, graph, location} of graphs) {
         const target = `${destination}/graphs/${path.basename(location)}`;
         const filename = path.basename(filepath);
+
         // Build metadata first - WKRM expects StaticGraphMeta (with counts), not full StaticGraph (with arrays)
         const meta = buildGraphMetadata(graph);
         // Ensure clean plain object for WASM deserialization
         const wkrm = new WKRM(meta);
-        const rmw = new ResourceModelWrapper(wkrm, graph, undefined);
+        const rmw = new ResourceModelWrapper(wkrm, graph, undefined, true);
         let publicationId;
+        const publicModels = assetFunctions.getPermittedModels()
 
         if (!includePrivate) {
             switch (type.toString()) {
                 case 'models':
-                    if (!PUBLIC_MODELS.includes(wkrm.modelClassName)) {
+                    if (!publicModels.includes(wkrm.modelClassName)) {
                         continue;
                     }
                     break;
@@ -175,7 +177,7 @@ async function processGraphs(
         await fs.promises.writeFile(`${target}/${filename}`, JSON.stringify({
             graph: [prunedGraph.toJSON()],
             __scope: ['public']
-        }, undefined, 2));
+        }, undefined, minify ? undefined : 2));
 
         if (type === "models") {
             models.push(rmw);
@@ -193,7 +195,8 @@ async function processGraphs(
 async function copyReferenceData(
     models: ResourceModelWrapper<any>[],
     outputDir: string,
-    includePrivate: boolean
+    includePrivate: boolean,
+    minify: boolean=false
 ): Promise<void> {
     const collections = 'prebuild/reference_data/collections';
 
@@ -225,7 +228,7 @@ async function copyReferenceData(
                 }
                 return fs.promises.writeFile(
                     `${outputDir}/definitions/reference_data/collections/${collectionId}.json`,
-                    JSON.stringify(collection, undefined, 2),
+                    JSON.stringify(collection, undefined, minify ? undefined : 2),
                 );
             });
         }).flat())).length;
@@ -258,14 +261,14 @@ async function copyReferenceData(
 async function generateResourceIndexes(
     assetMetadata: Asset[],
     models: ResourceModelWrapper<any>[],
-    outputDir: string
+    outputDir: string,
+    minify: boolean=false
 ): Promise<void> {
     await fs.promises.mkdir(`${outputDir}/definitions/business_data`, {"recursive": true});
 
-    console.log('nidexes', assetMetadata.length);
     // Track resource summaries per graph for the index file
-    const graphResourceSummaries: Map<string, Array<{name: string, resourceinstanceid: string}>> = new Map();
-    const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphid));
+    const graphResourceSummaries: Map<string, Array<{resourceinstance: {name: string, resourceinstanceid: string, descriptors: {name: string, slug: string}, graph_id: string}}>> = new Map();
+    const modelGraphIds = new Set(models.map(rmw => rmw.wkrm.graphId));
 
     await Promise.all(assetMetadata.map(async (asset) => {
         const businessDataDir = 'docs/definitions/business_data';
@@ -290,8 +293,15 @@ async function generateResourceIndexes(
             graphResourceSummaries.set(graphId, []);
         }
         graphResourceSummaries.get(graphId)!.push({
-            name: asset.meta.title || '',
-            resourceinstanceid: asset.meta.resourceinstanceid
+            resourceinstance: {
+                name: asset.meta.title || '',
+                resourceinstanceid: asset.meta.resourceinstanceid,
+                descriptors: {
+                    name: asset.meta.title || '',
+                    slug: asset.slug,
+                },
+                graph_id: graphId
+            }
         });
     }));
 
@@ -304,7 +314,7 @@ async function generateResourceIndexes(
         };
         return fs.promises.writeFile(
             `${outputDir}/definitions/business_data/_${graphId}.json`,
-            JSON.stringify(indexData, null, 2)
+            JSON.stringify(indexData, null, minify ? undefined : 2)
         );
     }));
 
@@ -452,7 +462,8 @@ export async function reindex(
     files: string[] | null,
     definitionsDir: string,
     outputDir: string,
-    includePrivate: boolean = false
+    includePrivate: boolean = false,
+    minify: boolean=false
 ): Promise<void> {
     // 1. Build search index and get locations
     const { index, assetMetadata } = await buildPagefind(files, outputDir, includePrivate);
@@ -464,6 +475,32 @@ export async function reindex(
         console.warn("No asset metadata was found");
     }
 
+    // 1b. Validate uniqueness of slugs and resource instance IDs
+    const slugsSeen = new Map<string, string>();  // slug -> resourceinstanceid (for error context)
+    const idsSeen = new Map<string, string>();    // resourceinstanceid -> slug (for error context)
+    const duplicates: string[] = [];
+
+    for (const asset of assetMetadata) {
+        const slug = asset.slug;
+        const id = asset.meta.resourceinstanceid;
+
+        if (slug && slugsSeen.has(slug)) {
+            duplicates.push(`Duplicate slug "${slug}": resources ${slugsSeen.get(slug)} and ${id}`);
+        } else if (slug) {
+            slugsSeen.set(slug, id);
+        }
+
+        if (id && idsSeen.has(id)) {
+            duplicates.push(`Duplicate resourceinstanceid "${id}": slugs ${idsSeen.get(id)} and ${slug}`);
+        } else if (id) {
+            idsSeen.set(id, slug);
+        }
+    }
+
+    if (duplicates.length > 0) {
+        throw new Error(`Uniqueness violations found:\n  ${duplicates.join('\n  ')}`);
+    }
+
     // 2. Load and prepare graphs
     const graphs = await loadGraphsFromDefinitions(definitionsDir, outputDir);
     await assetFunctions.initialize();
@@ -472,7 +509,8 @@ export async function reindex(
     const { models, branches, branchesFound, allMeta } = await processGraphs(
         graphs,
         `${outputDir}/definitions`,
-        includePrivate
+        includePrivate,
+        minify
     );
 
     // 4. Write graph metadata
@@ -482,11 +520,10 @@ export async function reindex(
     );
 
     // 5. Copy reference data
-    await copyReferenceData(models, outputDir, includePrivate);
-    console.log(models);
+    await copyReferenceData(models, outputDir, includePrivate, minify);
 
     // 6. Generate resource index files (always, regardless of mode)
-    await generateResourceIndexes(assetMetadata, models, outputDir);
+    await generateResourceIndexes(assetMetadata, models, outputDir, minify);
 
     // 7. Generate format-specific outputs
     if (FOR_ARCHES) {

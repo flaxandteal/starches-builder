@@ -3,15 +3,15 @@ import * as fs from "fs";
 import { type Feature, type FeatureCollection, type Point } from 'geojson';
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 
-import { version, slugify, staticTypes, interfaces, client, RDM, graphManager, staticStore, viewModels, resetTimingStats, logTimingStats, tracing } from 'alizarin';
+import { version, slugify, staticTypes, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin/inline';
+// Import CLM to register display serializers for reference datatypes
+import '@alizarin/clm';
+import '@alizarin/filelist';
 
 // Set up tracing
 const tracer = tracing.getTracer('starches-builder', version);
-// Per-batch summary (reset each batch)
-const batchSummaryExporter = new tracing.SummaryExporter();
 // Global summary (accumulates across entire run)
 const globalSummaryExporter = new tracing.SummaryExporter();
-tracing.addGlobalExporter(batchSummaryExporter.export);
 tracing.addGlobalExporter(globalSummaryExporter.export);
 
 import { Asset } from './types.ts';
@@ -76,13 +76,12 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
     archesClient.fs = fs;
     graphManager.archesClient = archesClient;
     staticStore.archesClient = archesClient;
-    staticStore.cacheMetadataOnly = false;
     RDM.archesClient = archesClient;
     return graphManager;
 }
 
 let warned = false;
-async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false): Promise<Asset | null> {
+async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false, minify: boolean=false): Promise<Asset | null> {
   return tracer.startActiveSpan('processAsset', async (span) => {
     const asset = await assetPromise;
     span.setAttribute('asset.id', asset.id || 'unknown');
@@ -104,8 +103,13 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
       return await asset.forJson(true);
     });
 
+    // Get display-friendly JSON for template rendering (resolves references to strings)
+    const displayAsset = await tracer.startActiveSpan('forDisplayJson', async () => {
+      return await asset.forDisplayJson(true);
+    });
+
     const meta = await tracer.startActiveSpan('getMeta', async () => {
-      return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate);
+      return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate, displayAsset.root);
     });
 
     const replacer = function (_: string, value: any) {
@@ -122,26 +126,104 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     await fs.promises.mkdir(`${PUBLIC_FOLDER}/definitions/business_data`, {"recursive": true});
     const resource = asset.$.resource;
 
-    const cache = await tracer.startActiveSpan('getValueCache', async () => {
-      return await asset.$.getValueCache(true, async (value: interfaces.IViewModel) => {
-        if (value instanceof viewModels.ResourceInstanceViewModel) {
-          const meta = await assetFunctions.getMeta(await value, await value, undefined, includePrivate);
-          return {
-            title: meta.meta.title,
-            slug: meta.meta.slug,
-            location: meta.meta.location,
-            type: meta.type,
+    // Build cache in getValueCache format: {tileId: {nodeId: entry}}
+    // Entry formats:
+    // - resource-instance: {datatype, id, type, graphId, title}
+    // - resource-instance-list: {datatype, _: [...entries...], meta}
+    type SingleCacheEntry = {datatype: string, id: string, type: string, graphId: string, title?: string, meta?: any};
+    type ListCacheEntry = {datatype: string, _: SingleCacheEntry[], meta?: any};
+    type CacheEntry = SingleCacheEntry | ListCacheEntry;
+
+    // First pass: collect all entries per tile/node (since resource-instance-list can have multiple)
+    const collectedEntries: Record<string, Record<string, SingleCacheEntry[]>> = {};
+
+    if (resource.tiles) {
+      for (const tile of resource.tiles) {
+        if (tile.data) {
+          for (const [nodeId, value] of Object.entries(tile.data)) {
+            // Handle resource-instance and resource-instance-list data format: [{resourceId: "..."}]
+            if (Array.isArray(value)) {
+              for (const entry of value) {
+                if (entry && typeof entry === 'object' && 'resourceId' in entry) {
+                  const refId = entry.resourceId;
+                  // Look up in staticStore registry
+                  const cached = staticStore.registry.getFull(refId) || staticStore.registry.getSummary(refId);
+                  if (cached) {
+                    const meta = cached.resourceinstance || cached;
+                    const graphId = meta.graph_id;
+                    // Get model class name from graphManager if available
+                    const wkrm = [...graphManager.wkrms.values()].find((w: any) => w.graphId === graphId);
+                    const modelClassName = wkrm?.modelClassName || graphId;
+
+                    // Initialize tile/node entry if needed
+                    if (!collectedEntries[tile.tileid]) {
+                      collectedEntries[tile.tileid] = {};
+                    }
+                    if (!collectedEntries[tile.tileid][nodeId]) {
+                      collectedEntries[tile.tileid][nodeId] = [];
+                    }
+                    // Collect all entries (don't dedupe - order matters)
+                    collectedEntries[tile.tileid][nodeId].push({
+                      datatype: 'resource-instance',
+                      id: refId,
+                      type: modelClassName,
+                      graphId: graphId,
+                      title: meta.name || meta.descriptors?.name || undefined,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Second pass: convert to proper cache format based on entry count
+    const newCache: Record<string, Record<string, CacheEntry>> = {};
+    for (const [tileId, nodeEntries] of Object.entries(collectedEntries)) {
+      newCache[tileId] = {};
+      for (const [nodeId, entries] of Object.entries(nodeEntries)) {
+        if (entries.length === 1) {
+          // Single entry - use resource-instance format
+          newCache[tileId][nodeId] = entries[0];
+        } else if (entries.length > 1) {
+          // Multiple entries - use resource-instance-list format
+          newCache[tileId][nodeId] = {
+            datatype: 'resource-instance-list',
+            _: entries,
+            meta: {},
           };
         }
-      });
-    });
-
-    if (cache && Object.values(cache).length > 0) {
-      resource.__cache = cache;
+      }
     }
-    resource.__scopes = safeJsonParse(meta.meta.scopes, 'resource scopes');
+
+    // Set __cache if we found any related resources
+    // Merge with existing cache (new entries win for conflicts)
+    if (Object.keys(newCache).length > 0) {
+      const existingCache = (resource.__cache || {}) as Record<string, Record<string, CacheEntry>>;
+      for (const [tileId, nodeEntries] of Object.entries(newCache)) {
+        if (!existingCache[tileId]) {
+          existingCache[tileId] = {};
+        }
+        for (const [nodeId, entry] of Object.entries(nodeEntries)) {
+          existingCache[tileId][nodeId] = entry;
+        }
+      }
+      resource.__cache = existingCache;
+    }
+
+    resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');
     resource.metadata = meta.meta;
-    const serial = JSON.stringify(resource, replacer, 2)
+
+    // Filter tiles to only include those that passed permission filtering
+    // The WASM wrapper only stores tiles that passed conditional permission rules
+    if (resource.tiles && asset.$.wasmWrapper) {
+      const permittedTileIds = new Set(asset.$.wasmWrapper.getAllTileIds());
+      resource.tiles = resource.tiles.filter((tile: any) => permittedTileIds.has(tile.tileid));
+    }
+
+    const serial = JSON.stringify(resource, replacer, minify ? undefined : 2)
     const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;
     const safeFilePath = safeJoinPath(businessDataDir, `${meta.slug}.json`);
     await fs.promises.writeFile(safeFilePath, serial);
@@ -168,7 +250,7 @@ function extractFeatures(geoJsonString: string): Feature[] {
   return [feature];
 }
 
-async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false) {
+async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
     await graphManager.initialize({ graphs: null, defaultAllowAllNodegroups: includePrivate });
     // Pass includePrivate to get() so the model is created with correct default permissions
     const Registry = await graphManager.get("Registry", includePrivate);
@@ -177,60 +259,92 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     if (includePrivate) {
       log("Building for NON-PUBLIC assets");
     }
-      log("A");
-    const assets = await assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate, lazy);
-      log("B");
-    log(`Loaded ${assets.length} assets`);
-    console.log(`[DEBUG] About to setup batch processing for ${assets.length} assets`);
-    // Batch size for parallel processing - RefCell fix allows concurrent async ops
-    const n = 10;
-    const batches = Math.ceil(assets.length / n);
-    console.log(`[DEBUG] Will process ${batches} batches of size ${n}`);
-    const assetMetadata = [];
-    const assocMetadata = [];
+    log("Starting resource processing...");
+
+    // getAllFrom now returns an async generator to avoid accumulating all resources in memory
+    const assetGenerator = assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate, lazy);
+
+    const assetMetadata: Asset[] = [];
+    const assocMetadata: Asset[] = [];
     const registries: {[key: string]: [number, number][]} = {};
-    console.log(`[DEBUG] Starting batch loop`);
-    for (let b = 0 ; b < batches ; b++) {
-      console.log(`[batch] Starting batch ${b}/${batches}, processing assets ${b * n} to ${Math.min((b + 1) * n, assets.length)}`);
-      progress('batch-processing', 'Processing assets', b * n, assets.length);
 
-      // Reset both legacy and new timing stats for this batch
-      resetTimingStats();
-      batchSummaryExporter.reset();
+    // Batch size for parallel processing
+    const n = 10;
+    let batchAssets: any[] = [];
+    let totalProcessed = 0;
+    let batchNumber = 0;
 
-      const batchAssets = assets.slice(b * n, (b + 1) * n);
-      console.log(`[batch] Batch has ${batchAssets.length} assets, calling Promise.all...`);
+    function addFeatures(asset: Asset) {
+      const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
+      assetRegistries.forEach((reg: string) => {
+        if (asset.meta.location) {
+          if (!registries[reg]) {
+            registries[reg] = [];
+          }
+          const location = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
+          registries[reg].push(location);
+        }
+      });
+    }
 
-      let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': b, 'batch.size': batchAssets.length }, async (batchSpan) => {
-        const results = await Promise.all(batchAssets.map(asset => processAsset(asset, resourcePrefix, includePrivate)));
-        return results.filter(asset => asset !== null);
+    // Process resources as they arrive from the generator
+    for await (const asset of assetGenerator) {
+      batchAssets.push(asset);
+
+      // Process when we have a full batch
+      if (batchAssets.length >= n) {
+        progress('batch-processing', 'Processing assets', totalProcessed, totalProcessed + 100); // Estimate
+
+        let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
+          const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate, minify)));
+          return results.filter(a => a !== null);
+        });
+
+        // Release WASM memory for processed resources to prevent memory exhaustion
+        for (const processedAsset of batchAssets) {
+          try {
+            processedAsset.$?.release?.();
+          } catch (e) {
+            // Ignore release errors - resource may already be cleaned up
+          }
+        }
+
+        assetBatch.map((a: Asset) => a.meta && a.meta.geometry ? addFeatures(a) : null);
+        assocMetadata.push(...assetBatch.filter(a => !assetFunctions.shouldIndex(a, includePrivate)));
+        assetBatch = assetBatch.filter(a => assetFunctions.shouldIndex(a, includePrivate));
+        assetMetadata.push(...assetBatch);
+
+        totalProcessed += batchAssets.length;
+        batchNumber++;
+        batchAssets = [];
+      }
+    }
+
+    // Process any remaining assets in the final partial batch
+    if (batchAssets.length > 0) {
+      let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
+        const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate)));
+        return results.filter(a => a !== null);
       });
 
-      console.log(`[batch] Batch ${b} completed, got ${assetBatch.length} non-null results`);
-
-      // Flush and print timing summary for this batch
-      tracing.flushAll();
-      batchSummaryExporter.printSummary(`batch ${b}`);
-      logTimingStats(`batch ${b} (legacy)`);
-
-      function addFeatures(asset: Asset) {
-        const assetRegistries = safeJsonParse<string[]>(asset.meta.registries, `asset ${asset.slug} registries`);
-        assetRegistries.forEach((reg: string) => {
-          if (asset.meta.location) {
-            if (!registries[reg]) {
-              registries[reg] = [];
-            }
-            const location = safeJsonParse(asset.meta.location, `asset ${asset.slug} location`);
-            registries[reg].push(location);
-          }
-        });
+      // Release WASM memory for processed resources
+      for (const processedAsset of batchAssets) {
+        try {
+          processedAsset.$?.release?.();
+        } catch (e) {
+          // Ignore release errors
+        }
       }
-      assetBatch.map((asset: Asset) => asset.meta && asset.meta.geometry ? addFeatures(asset) : null)
-      console.log('mark');
-      assocMetadata.push(...assetBatch.filter(asset => !assetFunctions.shouldIndex(asset, includePrivate)));
-      assetBatch = assetBatch.filter(asset => assetFunctions.shouldIndex(asset, includePrivate));
+
+      assetBatch.map((a: Asset) => a.meta && a.meta.geometry ? addFeatures(a) : null);
+      assocMetadata.push(...assetBatch.filter(a => !assetFunctions.shouldIndex(a, includePrivate)));
+      assetBatch = assetBatch.filter(a => assetFunctions.shouldIndex(a, includePrivate));
       assetMetadata.push(...assetBatch);
+
+      totalProcessed += batchAssets.length;
     }
+
+    log(`Processed ${totalProcessed} assets total`);
 
     let preindexFile: string;
     let fgbFile: string;
@@ -269,7 +383,7 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     return Promise.all(promises);
 }
 
-async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false) {
+async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
   const graphs = await ensureAssetFunctionsInitialized();
 
   let resourceFiles = [];
@@ -315,7 +429,7 @@ async function buildOnePreindex(resourceFile: string, resourcePrefix: string, in
     }
   }
   const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models || {});
-  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate, lazy);
+  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate, lazy, minify);
 }
 
 // Helper to log to either progress display or console
@@ -330,7 +444,7 @@ function progress(id: string, label: string, current: number, total: number) {
   display.progress(id, label, current, total);
 }
 
-export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false) {
+export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false, minify: boolean=false) {
   if (!resourceFile.endsWith('.json')) {
     console.error(`Tried to run with a non .json file: ${resourceFile}`);
     process.exit(1);
@@ -345,7 +459,7 @@ export async function etl(resourceFile: string, resourcePrefix: string | undefin
 
   try {
     log("Pre-indexing " + resourceFile);
-    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy);
+    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy, minify);
 
     if (useTui) {
       getProgressDisplay().finish();

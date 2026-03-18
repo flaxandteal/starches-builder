@@ -17,15 +17,15 @@ export async function buildFlatbush(locpairs: [IndexEntry, Feature][], outputDir
       "features": features
     };
     fs.writeFileSync(
-        `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
+        `${outputDir}/fgb/global-assets-wo-index.fgb`,
         fgbSerialize(geoJsonAll)
     );
 
-    // Re-index using WASM instead of external binary
+    // Re-index using napi instead of external binary
     await reindexFgb(
-        `${outputDir}/fgb/nihed-assets-wo-index.fgb`,
-        `${outputDir}/fgb/nihed-assets.fgb`,
-        'nihed-assets',
+        `${outputDir}/fgb/global-assets-wo-index.fgb`,
+        `${outputDir}/fgb/global-assets.fgb`,
+        'global-assets',
         copyrightTerms || "See site for copyright terms"
     );
 

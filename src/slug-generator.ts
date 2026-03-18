@@ -1,4 +1,4 @@
-import { slugify } from 'alizarin';
+import { slugify } from 'alizarin/inline';
 
 export class SlugGenerator {
   slugCounter: {[key: string]: number} = {};

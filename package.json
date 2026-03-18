@@ -1,6 +1,6 @@
 {
   "name": "starches-builder",
-  "version": "2.0.0-alpha.3",
+  "version": "2.0.0-alpha.45",
   "description": "Alizarin builder for Hugo",
   "keywords": [
     "static",
@@ -74,12 +74,17 @@
     "typescript-eslint": "^8.29.0"
   },
   "dependencies": {
+    "@alizarin/clm": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.45/alizarin-clm-0.2.1-alpha.45.tgz",
+    "@alizarin/filelist": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.45/alizarin-filelist-0.2.1-alpha.45.tgz",
     "@types/blessed": "^0.1.26",
-    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.3/alizarin-0.2.1-alpha.3.tgz",
+    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v0.2.1-alpha.45/alizarin-0.2.1-alpha.45.tgz",
     "blessed": "^0.1.81",
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",
     "geojson": "^0.5.0",
+    "handlebars": "^4.7.8",
+    "marked": "^17.0.1",
+    "marked-plaintify": "^1.1.1",
     "pagefind": "https://github.com/flaxandteal/pagefind/releases/download/v1.3.0-map-compatibility.5/pagefind-node-wrapper-v1.3.0-map-compatibility.5.tar.gz",
     "tar-stream": "^3.1.7"
   }

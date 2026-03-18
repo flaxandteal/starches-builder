@@ -16,6 +16,37 @@ const DEFAULT_PREBUILD_PATHS: PrebuildPaths = {
   geometry: ".location_data.geometry.geospatial_coordinates"
 };
 
+/**
+ * Configuration for a single filter that can be used in Pagefind search
+ */
+interface FilterConfig {
+  /** The name of the filter */
+  name: string
+  /** The modelClassName of the graph this filter applies to */
+  graph: string
+  /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
+  path: string
+  /** Whether the value is a single item or an array of items */
+  type: "single" | "array"
+  /** Optional list of all valid options (for frontend UI, even if not in data) */
+  options?: string[]
+  /** Optional requirement to use dynamic asset instead of (faster) display-rendered static one */
+  dynamic?: boolean
+  /** Optional default character count to trim the index entries to for free-text search */
+  indexCharacters?: number
+  /** Optional whether to trim or only warn */
+  indexCharactersWarnOnly?: boolean
+}
+
+interface ThumbnailConfig {
+  /** The modelClassName of the graph this filter applies to */
+  graph: string
+  /** Dot-notation path to extract from node data (e.g. ".classification.start_type") */
+  path: string
+  /** The value that will be present in the image name to identify the thumbnail */
+  identifier?: string[]
+}
+
 interface GraphConfiguration {
   models: {[graphId: string]: ModelEntry}
 }
@@ -26,6 +57,8 @@ interface PrebuildConfiguration {
   paths?: {[key: string]: string}
   permissionsFile?: string
   customDatatypes?: {[datatype: string]: string}
+  filters?: FilterConfig[]
+  thumbnail?: ThumbnailConfig[]
   [key: string]: any
 }
 
@@ -95,4 +128,4 @@ interface IAssetFunctions {
 }
 
 export { Asset, ModelEntry, IndexEntry, DEFAULT_PREBUILD_PATHS };
-export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths };
+export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths, FilterConfig };
