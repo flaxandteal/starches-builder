@@ -46,8 +46,15 @@ export class MetadataExtractor {
       this.config?.paths?.["location"] ?? DEFAULT_PREBUILD_PATHS.location
     ) || geometry;
 
-    if (location && location["features"]) {
-      const polygon = location["features"][0]["geometry"]["coordinates"];
+    let polygon;
+    if (location) {
+      if (location["features"]) {
+        polygon = location["features"][0]["geometry"]["coordinates"];
+      } else if (location["coordinates"]) {
+        polygon = location["coordinates"];
+      }
+    }
+    if (polygon) {
       if (Array.isArray(polygon[0])) {
         let polygons = polygon[0];
         if ((Array.isArray(polygons[0][0]))) {
@@ -70,6 +77,8 @@ export class MetadataExtractor {
     }
     if (location && location["features"]) {
       location = location["features"][0]["geometry"]["coordinates"];
+    } else if (location && location["coordinates"]) {
+      location = location["coordinates"];
     } else {
       location = null;
     }
