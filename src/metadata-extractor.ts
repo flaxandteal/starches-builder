@@ -2,9 +2,17 @@ import { Marked } from 'marked'
 import { getValueFromPath } from "alizarin/inline";
 import markedPlaintify from 'marked-plaintify'
 import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
-import type { PrebuildConfiguration } from "./types";
+import type { PrebuildConfiguration, FilterConfig } from "./types";
 import type { SlugGenerator } from "./slug-generator";
 import { TemplateManager } from './templates';
+
+interface ResolvedGraphConfig {
+  paths: {[key: string]: string}
+  indexCharacters: number
+  indexCharactersWarnOnly: boolean
+  filters: FilterConfig[]
+  thumbnail: {graph: string, path: string, identifier?: string[]}[]
+}
 
 export class MetadataExtractor {
   config?: PrebuildConfiguration;
@@ -20,6 +28,34 @@ export class MetadataExtractor {
     this.config = config;
   }
 
+  private resolveGraphConfig(graphId: string, modelType: string): ResolvedGraphConfig {
+    const gs = this.config?.graphSettings?.[graphId];
+
+    const paths = gs?.paths ?? this.config?.paths ?? {};
+
+    const indexCharacters = gs?.indexCharacters ?? this.config?.indexCharacters ?? 300;
+    const indexCharactersWarnOnly = gs?.indexCharactersWarnOnly ?? this.config?.indexCharactersWarnOnly ?? false;
+
+    // For filters: if graphSettings has filters, use those (injecting graph field).
+    // Otherwise, use top-level filters that match modelType.
+    let filters: FilterConfig[];
+    if (gs?.filters) {
+      filters = gs.filters.map(f => ({ ...f, graph: modelType }));
+    } else {
+      filters = (this.config?.filters ?? []).filter(f => f.graph === modelType);
+    }
+
+    // Same replacement logic for thumbnail
+    let thumbnail: {graph: string, path: string, identifier?: string[]}[];
+    if (gs?.thumbnail) {
+      thumbnail = gs.thumbnail.map(t => ({ ...t, graph: modelType }));
+    } else {
+      thumbnail = (this.config?.thumbnail ?? []).filter(t => t.graph === modelType || t.graph === "*");
+    }
+
+    return { paths, indexCharacters, indexCharactersWarnOnly, filters, thumbnail };
+  }
+
   async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean, displayAsset?: any): Promise<Asset> {
     /**
      * getMeta will use the staticAsset where possible, but that _can_ be dynamic (i.e. raw asset) if you have
@@ -29,12 +65,15 @@ export class MetadataExtractor {
      * Otherwise staticAsset is used for both data extraction and templates.
      */
     const modelType = asset.__.wkrm.modelClassName;
+    const graphId = asset.__.wkrm.graphId;
+    const gc = this.resolveGraphConfig(graphId, modelType);
+
     let displayName: string = "(unknown)"; // TODO: translate
     if (await asset.$?.getName) {
       displayName = await asset.$.getName();
     }
 
-    const geometryPath = this.config?.paths?.["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
+    const geometryPath = gc.paths["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
 
     const geometry = await getValueFromPath(
       staticAsset,
@@ -43,7 +82,7 @@ export class MetadataExtractor {
 
     let location = await getValueFromPath(
       staticAsset,
-      this.config?.paths?.["location"] ?? DEFAULT_PREBUILD_PATHS.location
+      gc.paths["location"] ?? DEFAULT_PREBUILD_PATHS.location
     ) || geometry;
 
     let polygon;
@@ -85,7 +124,6 @@ export class MetadataExtractor {
 
     const slug = asset.$.resource.resourceinstance?.descriptors?.slug
       || await this.slugGenerator.toSlug(displayName, asset, prefix);
-    const graphId = asset.__.wkrm.graphId;
     const meta = new Asset(
       staticAsset.id,
       graphId,
@@ -99,7 +137,7 @@ export class MetadataExtractor {
     );
     meta.meta["registries"] = "[]";
 
-    const template = this.templateManager.getTemplate(modelType);
+    const template = this.templateManager.getTemplateForGraph(graphId, modelType);
     // Use displayAsset for templates if provided (has display-friendly strings),
     // otherwise fall back to staticAsset
     const templateData = displayAsset ?? staticAsset;
@@ -113,14 +151,13 @@ export class MetadataExtractor {
       .use(markedPlaintify())
       .parse(indexOnly))
       .replace("\n", " ");
-    const maxChars = this.config?.indexCharacters || 300;
-    if (this.config?.indexCharactersWarnOnly) {
-      if (plaintext.length > maxChars) {
-        console.warn(`${slug}: ${displayName} has > ${maxChars} characters - length ${plaintext.length}`);
+    if (gc.indexCharactersWarnOnly) {
+      if (plaintext.length > gc.indexCharacters) {
+        console.warn(`${slug}: ${displayName} has > ${gc.indexCharacters} characters - length ${plaintext.length}`);
       }
       meta.content = plaintext;
     } else {
-      meta.content = plaintext.substring(0, this.config?.indexCharacters || 300);
+      meta.content = plaintext.substring(0, gc.indexCharacters);
     }
     if (description) {
       meta.meta.rawContent = description;
@@ -128,46 +165,36 @@ export class MetadataExtractor {
       meta.meta.rawContent = md;
     }
     meta.meta.resourceinstanceid = asset.$.resource.resourceinstance.resourceinstanceid;
-      
 
     // Extract configured filters from node data
-    if (this.config?.filters) {
-      for (const filterConfig of this.config.filters) {
-        if (filterConfig.graph === modelType) {
-            const rawValue = await getValueFromPath(filterConfig.dynamic ? asset : displayAsset, filterConfig.path);
-            let filterValue: string[];
-            if (filterConfig.type === "array") {
-              filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
-            } else {
-              filterValue = rawValue ? [rawValue] : [];
-            }
-            if (filterConfig.dynamic) {
-              filterValue = filterValue.map(fv => fv && fv.toString());
-            }
-            meta.meta[filterConfig.name] = JSON.stringify(filterValue);
-        }
+    for (const filterConfig of gc.filters) {
+      const rawValue = await getValueFromPath(filterConfig.dynamic ? asset : displayAsset, filterConfig.path);
+      let filterValue: string[];
+      if (filterConfig.type === "array") {
+        filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
+      } else {
+        filterValue = rawValue ? [rawValue] : [];
       }
+      if (filterConfig.dynamic) {
+        filterValue = filterValue.map(fv => fv && fv.toString());
+      }
+      meta.meta[filterConfig.name] = JSON.stringify(filterValue);
     }
 
     // Thumbnail extraction
-    if (this.config?.thumbnail) {
-      for (const thumbConfig of this.config.thumbnail || []) {
-        if (thumbConfig.graph === modelType || thumbConfig.graph === "*") {
-          const thumbnailData = await getValueFromPath(asset, thumbConfig.path);
-          const identifiers = thumbConfig.identifier || null;
+    for (const thumbConfig of gc.thumbnail) {
+      const thumbnailData = await getValueFromPath(asset, thumbConfig.path);
 
-          // Find first image whose name contains one of the identifiers
-          for (const imageGroup of thumbnailData || []) {
-            if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
-              const url = await imageGroup._.thumbnail[0].url || await imageGroup[0].url;
-              // If there is no index, this should not be shown.
-              const index = await imageGroup._.thumbnail[0]._file.index;
-              if (url && Number.isInteger(index)) {
-                meta.meta.thumbnailUrl = url;
-                meta.meta.thumbnailAltText = await imageGroup.alt_text || '';
-                break;
-              }
-            }
+      // Find first image whose name contains one of the identifiers
+      for (const imageGroup of thumbnailData || []) {
+        if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
+          const url = await imageGroup._.thumbnail[0].url || await imageGroup[0].url;
+          // If there is no index, this should not be shown.
+          const index = await imageGroup._.thumbnail[0]._file.index;
+          if (url && Number.isInteger(index)) {
+            meta.meta.thumbnailUrl = url;
+            meta.meta.thumbnailAltText = await imageGroup.alt_text || '';
+            break;
           }
         }
       }

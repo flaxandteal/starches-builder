@@ -1,8 +1,13 @@
-import { GraphManager, staticStore, staticTypes } from 'alizarin/inline';
+import * as fs from "fs";
+import * as path from "path";
+import { GraphManager, RDM, parseSkosXmlToCollection, staticStore, staticTypes } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { getProgressDisplay } from './progress';
+import { getFilesForRegex } from './utils';
 import type { ModelEntry } from "./types";
 import type { PermissionManager } from "./permissions";
+
+const RDM_COLLECTIONS_DIR = "prebuild/reference_data/collections";
 
 export class ResourceLoader {
   permissionManager: PermissionManager;
@@ -100,7 +105,84 @@ export class ResourceLoader {
     }
   }
 
-  async *getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
+  async preloadReferenceSources(referenceSources: string[]) {
+    const display = getProgressDisplay();
+    for (const pattern of referenceSources) {
+      for await (const file of getFilesForRegex("prebuild/business_data", pattern)) {
+        display.log(`Preloading summaries from: ${file}`);
+        const content = await fs.promises.readFile(file, { encoding: "utf8" });
+        const parsed = JSON.parse(content);
+        const resources = parsed.business_data?.resources;
+        if (resources && Array.isArray(resources)) {
+          staticStore.registry.mergeFromResourcesJson(JSON.stringify(resources), false, true);
+          display.log(`Preloaded ${resources.length} summaries from ${file}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Preload RDM (legacy concept) collections referenced by concept/concept-list
+   * nodes into the WASM RDM cache, so `forDisplayJson` can resolve UUIDs to labels.
+   *
+   * Reads SKOS RDF/XML files from `prebuild/reference_data/collections/{id}.xml`
+   * (the convention used by catalina-starches and similar Arches projects).
+   * Silently skips collections whose file is missing or fails to parse.
+   */
+  async preloadRdmCollections(graphManager: GraphManager, modelFiles: {[key: string]: ModelEntry}, includePrivate: boolean) {
+    const display = getProgressDisplay();
+
+    // Check the collections directory exists - if not, nothing to preload
+    try {
+      await fs.promises.access(RDM_COLLECTIONS_DIR);
+    } catch {
+      display.log(`No RDM collections directory at ${RDM_COLLECTIONS_DIR}, skipping preload`);
+      return;
+    }
+
+    // Enumerate unique collection IDs across all configured models
+    const collectionIds = new Set<string>();
+    for (const model of Object.keys(modelFiles)) {
+      try {
+        const Model = await graphManager.get(model, includePrivate);
+        for (const id of Model.getCollections(!includePrivate)) {
+          collectionIds.add(id);
+        }
+      } catch (e) {
+        display.log(`Could not enumerate RDM collections for model ${model}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+
+    if (collectionIds.size === 0) {
+      display.log("No RDM collections referenced by configured models");
+      return;
+    }
+
+    display.log(`Preloading ${collectionIds.size} RDM collections from ${RDM_COLLECTIONS_DIR}`);
+    let loaded = 0;
+    let skipped = 0;
+    for (const id of collectionIds) {
+      const xmlPath = path.join(RDM_COLLECTIONS_DIR, `${id}.xml`);
+      try {
+        const xmlContent = await fs.promises.readFile(xmlPath, "utf8");
+        const parsed = parseSkosXmlToCollection(xmlContent, "http://localhost/") as any;
+        const collection = new staticTypes.StaticCollection({
+          id: parsed.id || id,
+          prefLabels: parsed.prefLabels || {},
+          concepts: parsed.concepts || {},
+        } as any);
+        RDM.addCollection(collection);
+        collection.ensureInCache?.();
+        loaded++;
+      } catch (e) {
+        skipped++;
+        display.log(`Skipped RDM collection ${id}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    display.log(`Preloaded ${loaded} RDM collections (${skipped} skipped)`);
+  }
+
+  async *getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false, referenceSources?: string[]): AsyncGenerator<any, void, unknown> {
     const display = getProgressDisplay();
     display.log("Parsing resource file...");
     const resourceFile = await safeJsonParseFile(filename);
@@ -125,6 +207,15 @@ export class ResourceLoader {
     display.log("Registry loading complete, starting graph/resource loading...");
     await this.loadGraphsAndResources(graphManager, modelFiles, includePrivate);
     display.log("Graph/resource loading complete");
+
+    if (referenceSources?.length) {
+      display.log("Preloading reference summaries...");
+      await this.preloadReferenceSources(referenceSources);
+      display.log("Reference summary preloading complete");
+    }
+
+    // Preload RDM collections so concept-list nodes resolve to labels in forDisplayJson
+    await this.preloadRdmCollections(graphManager, modelFiles, includePrivate);
 
     // Now set up permissions for each graph
     const graphsArray: string[] = Array.from(graphs);

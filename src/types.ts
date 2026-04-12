@@ -47,6 +47,15 @@ interface ThumbnailConfig {
   identifier?: string[]
 }
 
+interface GraphSpecificSettings {
+  paths?: {[key: string]: string}
+  indexCharacters?: number
+  indexCharactersWarnOnly?: boolean
+  filters?: Omit<FilterConfig, 'graph'>[]
+  thumbnail?: Omit<ThumbnailConfig, 'graph'>[]
+  indexTemplate?: string
+}
+
 interface GraphConfiguration {
   models: {[graphId: string]: ModelEntry}
 }
@@ -59,6 +68,9 @@ interface PrebuildConfiguration {
   customDatatypes?: {[datatype: string]: string}
   filters?: FilterConfig[]
   thumbnail?: ThumbnailConfig[]
+  graphSettings?: {[graphId: string]: GraphSpecificSettings}
+  /** Business data files to preload as summaries for resource-instance name resolution */
+  referenceSources?: string[]
   [key: string]: any
 }
 
@@ -128,4 +140,4 @@ interface IAssetFunctions {
 }
 
 export { Asset, ModelEntry, IndexEntry, DEFAULT_PREBUILD_PATHS };
-export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, PrebuildSource, PrebuildPaths, FilterConfig };
+export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, GraphSpecificSettings, PrebuildSource, PrebuildPaths, FilterConfig };

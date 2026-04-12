@@ -55,6 +55,7 @@ export function registerHandlebarsHelpers(): void {
   Handlebars.registerHelper("replace", (base, fm, to) => base ? base.replaceAll(fm, to) : base);
   Handlebars.registerHelper("nl", (base, nl) => base ? base.replaceAll("\n", nl) : base);
   Handlebars.registerHelper("plus", (a, b) => a + b);
+  Handlebars.registerHelper("json", (a) => JSON.stringify(a));
   Handlebars.registerHelper("default", (a, b) => a === undefined || a === null ? b : a);
   Handlebars.registerHelper("defaulty", (a, b) => a != undefined && a != null && a != false ? a : b);
   Handlebars.registerHelper("equal", (a, b) => a == b);

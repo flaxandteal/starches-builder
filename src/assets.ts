@@ -61,7 +61,7 @@ class AssetFunctions implements IAssetFunctions {
   }
 
   getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
-    return this.resourceLoader.getAllFrom(graphManager, filename, includePrivate, this.getModelFiles(), lazy);
+    return this.resourceLoader.getAllFrom(graphManager, filename, includePrivate, this.getModelFiles(), lazy, this.config?.referenceSources);
   }
 
   getModelFiles(): {[key: string]: ModelEntry} {

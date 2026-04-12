@@ -5,7 +5,7 @@ import { slugify } from 'alizarin/inline';
 import { REGISTRIES } from "./utils";
 import { DEFAULT_LANGUAGE } from "./config";
 import { safeJsonParse, safeJsonParseFile } from './safe-utils';
-import type { PrebuildConfiguration } from './types';
+import type { PrebuildConfiguration, FilterConfig } from './types';
 import { assetFunctions } from "./assets";
 
 export async function buildPagefind(files: string[] | null, publicFolder: string, includePrivate: boolean = false) {
@@ -51,16 +51,27 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             designations: designations
         };
 
-        // Add any configured custom filters
-        if (config?.filters && Array.isArray(config.filters)) {
-            for (const filterConfig of config.filters) {
-                const filterName = filterConfig.name;
-                const filterValue = asset.meta[filterName]
-                    ? safeJsonParse<string[]>(asset.meta[filterName], `asset ${asset.slug} ${filterName}`)
-                    : [];
-                
-                filters[filterName] = filterValue;
-            }
+        // Add any configured custom filters (from top-level and graphSettings)
+        const graphId = asset.meta.graphid;
+        const gs = graphId ? config?.graphSettings?.[graphId] : undefined;
+
+        // Resolve filters: graphSettings replaces top-level for this graph
+        let resolvedFilters: {name: string}[];
+        if (gs?.filters) {
+            resolvedFilters = gs.filters;
+        } else if (config?.filters && Array.isArray(config.filters)) {
+            resolvedFilters = config.filters;
+        } else {
+            resolvedFilters = [];
+        }
+
+        for (const filterConfig of resolvedFilters) {
+            const filterName = filterConfig.name;
+            const filterValue = asset.meta[filterName]
+                ? safeJsonParse<string[]>(asset.meta[filterName], `asset ${asset.slug} ${filterName}`)
+                : [];
+
+            filters[filterName] = filterValue;
         }
 
         // const regcode = registriesToRegcode(registries);
