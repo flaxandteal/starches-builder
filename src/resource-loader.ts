@@ -9,6 +9,13 @@ import type { PermissionManager } from "./permissions";
 
 const RDM_COLLECTIONS_DIR = "prebuild/reference_data/collections";
 
+/** Lightweight ref returned by WASM loadFromBusinessDataBytes */
+interface ResourceRef {
+  resourceinstanceid: string;
+  graph_id: string;
+  isPublic: boolean;
+}
+
 export class ResourceLoader {
   permissionManager: PermissionManager;
   registries: {[key: string]: any} = {};
@@ -17,51 +24,49 @@ export class ResourceLoader {
     this.permissionManager = permissionManager;
   }
 
-  async loadRegistries(graphManager: GraphManager, includePrivate: boolean) {
+  /**
+   * Extract registry names from pre-loaded refs (avoids calling .all() which
+   * triggers ArchesClientLocal.getResources and hits V8 string limit on large files).
+   */
+  async loadRegistriesFromRefs(registryModel: any, refs: ResourceRef[]) {
     const display = getProgressDisplay();
 
-    // First, ensure the graph is loaded with correct default permissions
-    display.log("Loading Registry graph...");
-    await graphManager.loadGraph("Registry", includePrivate);
+    const registryGraphId = registryModel.wkrm.graphId;
+    const registryRefs = refs.filter(r => r.graph_id === registryGraphId);
+    display.log(`Found ${registryRefs.length} registry resources, extracting names...`);
 
-    display.log("Getting Registry graph...");
-    const registryGraph = await graphManager.get("Registry", includePrivate);
-
-    // Apply permissions to Registry model BEFORE calling all() which creates resources
-    // This ensures tiles aren't pruned incorrectly when includePrivate is true
-    display.log("Applying Registry permissions...");
-    await this.permissionManager.applyPermissions(registryGraph, "Registry", includePrivate);
-
-    display.log("Loading all registries...");
-    const allRegs = await registryGraph.all();
-
-    display.log(`Processing ${allRegs.length} registries...`);
     const entries: [string, string][] = [];
-    for (const reg of allRegs) {
-      const nameCount = await reg.names.length;
-      const names: [string, string][] = [];
+    for (const ref of registryRefs) {
+      try {
+        const reg = await registryModel.find(ref.resourceinstanceid);
+        const nameCount = await reg.names.length;
+        const names: [string, string][] = [];
 
-      for (let i = 0; i < nameCount; i++) {
-        try {
-          const nameUseType = await reg.names[i].name_use_type;
-          const name = await reg.names[i].name;
-          names.push([nameUseType?.toString(), name.toString()]);
-        } catch (e) {
-          console.error(`Error loading name ${i} for registry:`, e);
+        for (let i = 0; i < nameCount; i++) {
+          try {
+            const nameUseType = await reg.names[i].name_use_type;
+            const name = await reg.names[i].name;
+            names.push([nameUseType?.toString(), name.toString()]);
+          } catch (e) {
+            console.error(`Error loading name ${i} for registry:`, e);
+          }
         }
-      }
 
-      const indexedNames = Object.fromEntries(names);
-      const regId = await reg.id;
-      entries.push([regId, indexedNames['Primary']]);
+        const indexedNames = Object.fromEntries(names);
+        const regId = await reg.id;
+        entries.push([regId, indexedNames['Primary']]);
+      } catch (e) {
+        display.log(`Could not load registry ${ref.resourceinstanceid}: ${e instanceof Error ? e.message : e}`);
+      }
     }
 
     this.registries = Object.fromEntries(entries);
+    display.log(`Loaded ${entries.length} registries`);
   }
 
-  async loadGraphsAndResources(graphManager: GraphManager, modelFiles: {[key: string]: ModelEntry}, includePrivate: boolean) {
-    // Load all graphs first, then apply permissions, then load resources
-    // Permissions MUST be set before loading resources to prevent incorrect tile pruning
+  async loadGraphsAndPermissions(graphManager: GraphManager, modelFiles: {[key: string]: ModelEntry}, includePrivate: boolean) {
+    // Load all graph schemas and apply permissions.
+    // Resource loading is handled separately via loadFromBusinessDataBytes.
     const display = getProgressDisplay();
     const modelKeys = Object.keys(modelFiles);
 
@@ -73,8 +78,7 @@ export class ResourceLoader {
       await graphManager.loadGraph(model, includePrivate);
     }
 
-    // Phase 2: Apply permissions to all models BEFORE loading any resources
-    // This is critical - resources are created during loadAll, and they prune tiles based on permissions
+    // Phase 2: Apply permissions to all models
     for (let i = 0; i < modelKeys.length; i++) {
       const model = modelKeys[i];
       const Model = await graphManager.get(model, includePrivate);
@@ -82,12 +86,20 @@ export class ResourceLoader {
       display.log(`Applying permissions for: ${modelClassName}`);
       await this.permissionManager.applyPermissions(Model, modelClassName, includePrivate);
     }
+  }
 
-    // Phase 3: Now load resources - permissions are already set
+  /** Legacy: load graphs, permissions, AND resources via staticStore.loadAll.
+   *  Used as fallback when WASM loadFromBusinessDataBytes is not available. */
+  async loadGraphsAndResources(graphManager: GraphManager, modelFiles: {[key: string]: ModelEntry}, includePrivate: boolean) {
+    await this.loadGraphsAndPermissions(graphManager, modelFiles, includePrivate);
+
+    const display = getProgressDisplay();
+    const modelKeys = Object.keys(modelFiles);
+
+    // Phase 3: Load resources via staticStore (reads files through ArchesClientLocal)
     for (let i = 0; i < modelKeys.length; i++) {
       const model = modelKeys[i];
       display.log(`Loading resources for: ${model}`);
-      // Force all resources into the cache, so we can find them without the need for individual requests.
       let n = 0;
       try {
         for await (const _ of staticStore.loadAll(model)) {
@@ -182,31 +194,76 @@ export class ResourceLoader {
     display.log(`Preloaded ${loaded} RDM collections (${skipped} skipped)`);
   }
 
-  async *getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false, referenceSources?: string[]): AsyncGenerator<any, void, unknown> {
+  async *getAllFrom(graphManager: GraphManager, filenames: string[], includePrivate: boolean, modelFiles: {[key: string]: ModelEntry}, lazy: boolean = false, referenceSources?: string[]): AsyncGenerator<any, void, unknown> {
     const display = getProgressDisplay();
-    display.log("Parsing resource file...");
-    const resourceFile = await safeJsonParseFile(filename);
-    let resourceList: staticTypes.StaticResource[] = resourceFile.business_data.resources;
-    if (!includePrivate) {
-      resourceList = resourceList.filter((resource: staticTypes.StaticResource) => {
-        if (resource.__scopes && resource.__scopes.includes("public")) {
-          return true;
+
+    // Phase 1: Load all graph schemas and permissions (no resource data yet).
+    // This MUST happen before loading business data so Model.find() works.
+    display.log("Loading graph schemas...");
+    await this.loadGraphsAndPermissions(graphManager, modelFiles, includePrivate);
+
+    // Load Registry graph schema (may not be in modelFiles)
+    display.log("Loading Registry graph...");
+    await graphManager.loadGraph("Registry", includePrivate);
+    const registryModel = await graphManager.get("Registry", includePrivate);
+    await this.permissionManager.applyPermissions(registryModel, "Registry", includePrivate);
+    display.log("Graph schemas loaded");
+
+    // Phase 2: Load resources via WASM loadFromBusinessDataBytes.
+    // Reads files as raw bytes, parses and stores entirely in Rust — no V8
+    // string limit, no V8 object allocation.
+    // Falls back to JS JSON.parse for older alizarin builds.
+    display.log(`Loading resources from ${filenames.length} file(s)...`);
+    let resourceRefs: ResourceRef[] = [];
+    const useWasmLoader = typeof staticStore.registry.loadFromBusinessDataBytes === 'function';
+
+    if (useWasmLoader) {
+      for (const filename of filenames) {
+        display.log(`Loading: ${filename}`);
+        const buffer = await fs.promises.readFile(filename);
+        const refs: ResourceRef[] = staticStore.registry.loadFromBusinessDataBytes(buffer, true, true);
+        if (refs.length > 0) {
+          display.log(`Sample ref keys: ${JSON.stringify(Object.keys(refs[0]))}`);
+          display.log(`Sample ref: ${JSON.stringify(refs[0])}`);
         }
-      });
+        const filtered = includePrivate ? refs : refs.filter(r => r.isPublic);
+        resourceRefs.push(...filtered);
+        display.log(`Loaded ${refs.length} resources via WASM from ${filename} (${filtered.length} after scope filter)`);
+      }
+      display.log(`Total: ${resourceRefs.length} resources from all files`);
+    } else {
+      // Fallback: read via JS + load via staticStore.loadAll
+      display.log("WASM loadFromBusinessDataBytes not available, falling back to JS path");
+      for (const filename of filenames) {
+        const resourceFile = await safeJsonParseFile(filename);
+        let resourceList = resourceFile.business_data.resources;
+        if (!includePrivate) {
+          resourceList = resourceList.filter((resource: any) => {
+            if (resource.__scopes && resource.__scopes.includes("public")) {
+              return true;
+            }
+          });
+        }
+        resourceRefs.push(...resourceList.map((r: any) => ({
+          resourceinstanceid: r.resourceinstance.resourceinstanceid,
+          graph_id: r.resourceinstance.graph_id,
+          isPublic: true,
+        })));
+      }
+      // Load resources via staticStore (the old way — reads files again)
+      const modelKeys = Object.keys(modelFiles);
+      for (const model of modelKeys) {
+        let n = 0;
+        for await (const _ of staticStore.loadAll(model)) { n++; }
+        display.log(`Loaded ${n} resources for ${model} (legacy path)`);
+      }
+      display.log(`Found ${resourceRefs.length} resources via JS fallback`);
     }
-    display.log(`Found ${resourceList.length} resources in file`);
-    const graphs: Set<string> = resourceList.reduce((set: Set<string>, resource: staticTypes.StaticResource) => {
-      set.add(resource.resourceinstance.graph_id);
-      return set;
-    }, new Set<string>());
 
-    const models: {[graphId: string]: any} = {};
+    // Phase 3: Extract registries from pre-loaded data (no .all() call needed)
+    await this.loadRegistriesFromRefs(registryModel, resourceRefs);
 
-    display.log("Starting registry loading...");
-    await this.loadRegistries(graphManager, includePrivate);
-    display.log("Registry loading complete, starting graph/resource loading...");
-    await this.loadGraphsAndResources(graphManager, modelFiles, includePrivate);
-    display.log("Graph/resource loading complete");
+    const graphs = new Set(resourceRefs.map(r => r.graph_id));
 
     if (referenceSources?.length) {
       display.log("Preloading reference summaries...");
@@ -217,61 +274,62 @@ export class ResourceLoader {
     // Preload RDM collections so concept-list nodes resolve to labels in forDisplayJson
     await this.preloadRdmCollections(graphManager, modelFiles, includePrivate);
 
-    // Now set up permissions for each graph
-    const graphsArray: string[] = Array.from(graphs);
+    // Set up permissions for each graph present in the data.
+    // Skip graph_ids that weren't loaded (not in modelFiles).
+    const models: {[graphId: string]: any} = {};
+    const graphsArray = Array.from(graphs);
     for (let i = 0; i < graphsArray.length; i++) {
-      const modelToLoad: string = graphsArray[i];
-      const Model = await graphManager.get(modelToLoad, includePrivate);
-      const modelClassName = Model.wkrm.modelClassName;
+      const modelToLoad = graphsArray[i];
+      try {
+        const Model = await graphManager.get(modelToLoad, includePrivate);
+        const modelClassName = Model.wkrm.modelClassName;
 
-      display.progress('permission-setup', 'Setting up permissions', i + 1, graphsArray.length);
-      await this.permissionManager.applyPermissions(Model, modelClassName, includePrivate);
-      models[modelToLoad] = Model;
+        display.progress('permission-setup', 'Setting up permissions', i + 1, graphsArray.length);
+        await this.permissionManager.applyPermissions(Model, modelClassName, includePrivate);
+        models[modelToLoad] = Model;
+      } catch {
+        display.log(`Skipping graph ${modelToLoad} (not in modelFiles, likely a dependency)`);
+      }
     }
 
-    display.log(`Finding ${resourceList.length} resources...`);
-    // Debug: check registry state before find calls
+    // Filter refs to only include graphs we have models for
+    const processableRefs = resourceRefs.filter(r => models[r.graph_id]);
+    const skippedCount = resourceRefs.length - processableRefs.length;
+    if (skippedCount > 0) {
+      display.log(`Skipping ${skippedCount} resources from unloaded graphs (dependencies)`);
+    }
+
+    display.log(`Finding ${processableRefs.length} resources...`);
     display.log(`Registry size: ${staticStore.registry.length}`);
-    if (resourceList.length > 0) {
-      const firstId = resourceList[0].resourceinstance.resourceinstanceid;
-      const cached = staticStore.registry.getFull(firstId);
-      display.log(`First resource ${firstId} cached as: ${cached?.constructor?.name || 'not found'}`);
-    }
 
     // Process in small batches and YIELD each resource individually
-    // This allows the caller to process and release resources incrementally
-    // preventing WASM memory exhaustion from accumulating all resources at once
     const BATCH_SIZE = 10;
     let lastLogTime = Date.now();
     let lastLogCount = 0;
     let yielded = 0;
 
-    for (let i = 0; i < resourceList.length; i += BATCH_SIZE) {
-      const batch = resourceList.slice(i, Math.min(i + BATCH_SIZE, resourceList.length));
-      const batchPromises = batch.map((staticResource) => {
-        const Model = models[staticResource.resourceinstance.graph_id];
-        // Pass lazy flag - for ETL (lazy=false), tiles are loaded upfront from the JSON
-        return Model.find(staticResource.resourceinstance.resourceinstanceid, lazy);
+    for (let i = 0; i < processableRefs.length; i += BATCH_SIZE) {
+      const batch = processableRefs.slice(i, Math.min(i + BATCH_SIZE, processableRefs.length));
+      const batchPromises = batch.map((ref) => {
+        const Model = models[ref.graph_id];
+        return Model.find(ref.resourceinstanceid, lazy);
       });
 
-      // Await this batch before starting the next - reduces Promise queue contention
       const batchResults = await Promise.all(batchPromises);
 
-      // Yield each resource individually so caller can process and release
       for (const resource of batchResults) {
         yield resource;
         yielded++;
       }
 
-      // Update progress and log rate
-      const processed = Math.min(i + BATCH_SIZE, resourceList.length);
-      display.progress('finding-resources', 'Finding resources', processed, resourceList.length);
+      const processed = Math.min(i + BATCH_SIZE, processableRefs.length);
+      display.progress('finding-resources', 'Finding resources', processed, processableRefs.length);
 
       const now = Date.now();
       if (processed % 500 === 0 || (now - lastLogTime > 5000 && processed > lastLogCount)) {
         const elapsed = now - lastLogTime;
         const rate = ((processed - lastLogCount) / elapsed * 1000).toFixed(1);
-        display.log(`Found ${processed}/${resourceList.length} (${rate} res/sec)`);
+        display.log(`Found ${processed}/${processableRefs.length} (${rate} res/sec)`);
         lastLogTime = now;
         lastLogCount = processed;
       }

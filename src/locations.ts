@@ -1,5 +1,5 @@
 import { Asset } from './types.ts';
-import { type FeatureCollection, type Feature } from "geojson";
+import { type Feature } from "geojson";
 import { registriesToRegcode } from "./utils";
 import { DEFAULT_LANGUAGE } from "./config";
 import { IndexEntry } from "./types";
@@ -18,7 +18,7 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
 export async function getLocations(index: pagefind.PagefindIndex, assetMetadata: Asset[], includePrivate: boolean=false): Promise<[IndexEntry, Feature][]> {
     const catalogue = await index.getIndexCatalogue();
     if (!catalogue.entries) {
-        throw Error(catalogue.errors);
+        throw Error((catalogue as any).errors || "No entries in catalogue");
     }
     const hashes = catalogue.entries.reduce((agg: {[key: string]: string}, [hash, entry]: [string, string]) => {
         const entryData = safeJsonParse<{ meta?: { slug?: string } }>(entry, `pagefind entry with hash ${hash}`);

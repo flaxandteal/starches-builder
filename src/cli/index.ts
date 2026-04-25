@@ -27,8 +27,8 @@ export async function cli_index(definitions: string, preIndexDirectory: string, 
   return reindex(preIndexFiles, definitions, site, includePrivate, minify);
 }
 
-export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false, lazy: boolean = false, summary: boolean = false, minify: boolean = false) {
-  return etl(resourceFile, resourcePrefix, includePrivate, useTui, lazy, summary, minify);
+export async function cli_etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean, useTui: boolean = false, lazy: boolean = false, summary: boolean = false, verbose: boolean = false, minify: boolean = false, buildRosMadair: boolean = false, rosMadairBin: string = "build_from_prebuild", rosMadairOutput: string = "docs/static/ros-madair") {
+  return etl(resourceFile, resourcePrefix, includePrivate, useTui, lazy, summary, verbose, minify, buildRosMadair, rosMadairBin, rosMadairOutput);
 }
 
 export async function cli_precompile() {

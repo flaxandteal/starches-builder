@@ -1,10 +1,10 @@
 import { Marked } from 'marked'
-import { getValueFromPath } from "alizarin/inline";
 import markedPlaintify from 'marked-plaintify'
 import { Asset, DEFAULT_PREBUILD_PATHS } from "./types";
-import type { PrebuildConfiguration, FilterConfig } from "./types";
+import type { PrebuildConfiguration, FilterConfig, FileConfig } from "./types";
 import type { SlugGenerator } from "./slug-generator";
 import { TemplateManager } from './templates';
+import type { WarningCollector } from './warning-collector';
 
 interface ResolvedGraphConfig {
   paths: {[key: string]: string}
@@ -12,12 +12,14 @@ interface ResolvedGraphConfig {
   indexCharactersWarnOnly: boolean
   filters: FilterConfig[]
   thumbnail: {graph: string, path: string, identifier?: string[]}[]
+  files: FileConfig[]
 }
 
 export class MetadataExtractor {
   config?: PrebuildConfiguration;
   slugGenerator: SlugGenerator;
   templateManager: TemplateManager;
+  private warningCollector?: WarningCollector;
 
   constructor(slugGenerator: SlugGenerator, templateManager: TemplateManager) {
     this.slugGenerator = slugGenerator;
@@ -26,6 +28,10 @@ export class MetadataExtractor {
 
   setConfig(config: PrebuildConfiguration) {
     this.config = config;
+  }
+
+  setWarningCollector(collector: WarningCollector) {
+    this.warningCollector = collector;
   }
 
   private resolveGraphConfig(graphId: string, modelType: string): ResolvedGraphConfig {
@@ -53,7 +59,19 @@ export class MetadataExtractor {
       thumbnail = (this.config?.thumbnail ?? []).filter(t => t.graph === modelType || t.graph === "*");
     }
 
-    return { paths, indexCharacters, indexCharactersWarnOnly, filters, thumbnail };
+    // Same replacement logic for files
+    let files: FileConfig[];
+    if (gs?.files) {
+      files = gs.files.map(f => ({ ...f, graph: modelType }));
+    } else {
+      files = (this.config?.files ?? []).filter(f => f.graph === modelType);
+    }
+
+    return { paths, indexCharacters, indexCharactersWarnOnly, filters, thumbnail, files };
+  }
+
+  getFilesConfig(graphId: string, modelType: string): FileConfig[] {
+    return this.resolveGraphConfig(graphId, modelType).files;
   }
 
   async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean, displayAsset?: any): Promise<Asset> {
@@ -73,17 +91,30 @@ export class MetadataExtractor {
       displayName = await asset.$.getName();
     }
 
+    const wasmWrapper = asset.$.wasmWrapper;
+
     const geometryPath = gc.paths["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
+    let geometry = null;
+    try {
+      const geoList = wasmWrapper.getValuesAtPath(geometryPath);
+      if (geoList.totalValues > 0) {
+        geometry = geoList.getValue(0)?.tileData;
+      }
+    } catch (e) {
+      this.warningCollector?.debug("geometry path not found", `${displayName}: geometry path '${geometryPath}' not found: ${e}`);
+    }
 
-    const geometry = await getValueFromPath(
-      staticAsset,
-      geometryPath
-    );
-
-    let location = await getValueFromPath(
-      staticAsset,
-      gc.paths["location"] ?? DEFAULT_PREBUILD_PATHS.location
-    ) || geometry;
+    const locationPath = gc.paths["location"] ?? DEFAULT_PREBUILD_PATHS.location;
+    let location = null;
+    try {
+      const locList = wasmWrapper.getValuesAtPath(locationPath);
+      if (locList.totalValues > 0) {
+        location = locList.getValue(0)?.tileData;
+      }
+    } catch (e) {
+      this.warningCollector?.debug("location path not found", `${displayName}: location path '${locationPath}' not found: ${e}`);
+    }
+    location = location || geometry;
 
     let polygon;
     if (location) {
@@ -138,6 +169,9 @@ export class MetadataExtractor {
     meta.meta["registries"] = "[]";
 
     const template = this.templateManager.getTemplateForGraph(graphId, modelType);
+    if (!template) {
+      throw Error(`No template found for graph ${graphId} (${modelType})`);
+    }
     // Use displayAsset for templates if provided (has display-friendly strings),
     // otherwise fall back to staticAsset
     const templateData = displayAsset ?? staticAsset;
@@ -168,7 +202,70 @@ export class MetadataExtractor {
 
     // Extract configured filters from node data
     for (const filterConfig of gc.filters) {
-      const rawValue = await getValueFromPath(filterConfig.dynamic ? asset : displayAsset, filterConfig.path);
+      let rawValue: any;
+      if (filterConfig.dynamic) {
+        // Dynamic filters use Rust path resolution for the graph portion,
+        // then access ViewModel computed properties for the suffix.
+        // Split at first segment that isn't a graph alias (e.g., "ancestors").
+        const segments = filterConfig.path.replace(/^\./, '').split('.');
+        let graphPrefix = '';
+        let vmSuffix: string[] = [];
+        // Try progressively shorter prefixes until getValuesAtPath succeeds
+        for (let i = segments.length; i > 0; i--) {
+          try {
+            graphPrefix = segments.slice(0, i).join('.');
+            wasmWrapper.getValuesAtPath(graphPrefix);
+            vmSuffix = segments.slice(i);
+            break;
+          } catch {
+            graphPrefix = '';
+            continue;
+          }
+        }
+        if (!graphPrefix) {
+          this.warningCollector?.warn("dynamic filter had no valid graph prefix", `${displayName}: dynamic filter '${filterConfig.name}' — no valid graph prefix found in path '${filterConfig.path}'`);
+        }
+        if (graphPrefix) {
+          const pseudoList = asset.$.getValuesAtPath(graphPrefix);
+          const values: any[] = [];
+          const allValues = pseudoList.getAllValues?.() ?? [];
+          for (const pv of allValues) {
+            let val = await pv.getValue();
+            // Walk remaining ViewModel suffix
+            for (const seg of vmSuffix) {
+              if (val == null) break;
+              if (seg === '*' && Array.isArray(val)) {
+                // Expand array — flatten remaining suffix across all elements
+                const rest = vmSuffix.slice(vmSuffix.indexOf(seg) + 1);
+                const expanded = await Promise.all(val.map(async (v: any) => {
+                  let r = await v;
+                  for (const s of rest) { r = r?.[s]; r = await r; }
+                  return r;
+                }));
+                val = expanded;
+                vmSuffix = []; // consumed
+                break;
+              }
+              val = val?.[seg];
+              val = await val;
+            }
+            if (val != null) {
+              if (Array.isArray(val)) {
+                values.push(...val);
+              } else {
+                values.push(val);
+              }
+            }
+          }
+          rawValue = values.length === 1 ? values[0] : values.length > 0 ? values : null;
+        }
+      } else {
+        // Non-dynamic filters: walk display-formatted JSON (zero FFI crossings)
+        const source = displayAsset ?? staticAsset;
+        rawValue = filterConfig.path.replace(/^\./, '').split('.').reduce(
+          (v: any, k: string) => v?.[k], source
+        );
+      }
       let filterValue: string[];
       if (filterConfig.type === "array") {
         filterValue = Array.isArray(rawValue) ? rawValue : (rawValue ? [rawValue] : []);
@@ -181,22 +278,36 @@ export class MetadataExtractor {
       meta.meta[filterConfig.name] = JSON.stringify(filterValue);
     }
 
-    // Thumbnail extraction
+    // Thumbnail extraction via Rust path resolution
     for (const thumbConfig of gc.thumbnail) {
-      const thumbnailData = await getValueFromPath(asset, thumbConfig.path);
+      try {
+        // Get thumbnail entries at the configured path + '.thumbnail'
+        const thumbList = wasmWrapper.getValuesAtPath(thumbConfig.path + '._.thumbnail');
+        const thumbValues = thumbList.getAllValues?.() ?? [];
 
-      // Find first image whose name contains one of the identifiers
-      for (const imageGroup of thumbnailData || []) {
-        if (imageGroup._ && imageGroup._.thumbnail && imageGroup._.thumbnail[0]) {
-          const url = await imageGroup._.thumbnail[0].url || await imageGroup[0].url;
-          // If there is no index, this should not be shown.
-          const index = await imageGroup._.thumbnail[0]._file.index;
+        for (const thumbPv of thumbValues) {
+          const td = thumbPv.tileData;
+          const url = td?.url;
+          const index = td?.file_id != null ? td?.index : undefined;
           if (url && Number.isInteger(index)) {
             meta.meta.thumbnailUrl = url;
-            meta.meta.thumbnailAltText = await imageGroup.alt_text || '';
+            // Get alt_text from sibling — filter by parent tile
+            try {
+              const altList = wasmWrapper.getValuesAtPath(
+                thumbConfig.path + '.alt_text',
+                thumbPv.tileId
+              );
+              if (altList.totalValues > 0) {
+                meta.meta.thumbnailAltText = altList.getValue(0)?.tileData || '';
+              }
+            } catch (e) {
+              this.warningCollector?.debug("alt text path not found", `${displayName}: alt_text path not found for thumbnail: ${e}`);
+            }
             break;
           }
         }
+      } catch (e) {
+        this.warningCollector?.warn("thumbnail path not found", `${displayName}: thumbnail path '${thumbConfig.path}' not found: ${e}`);
       }
     }
     return meta;

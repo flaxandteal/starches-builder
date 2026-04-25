@@ -38,6 +38,19 @@ interface FilterConfig {
   indexCharactersWarnOnly?: boolean
 }
 
+interface FileConfig {
+  /** The modelClassName of the graph this file config applies to */
+  graph: string
+  /** Dot-notation path to the file-list node (e.g. ".images.image_file") */
+  node: string
+  /** URL prefix - the file's name will be appended to this */
+  prefix: string
+  /** Sibling nodes on the same tile to rewrite with size subdirectories.
+   *  e.g. { "thumbnail": "m240", "preview": "m800" }
+   *  Results in: prefix + 'm240/' + entry.name, prefix + 'm800/' + entry.name */
+  variants?: {[alias: string]: string}
+}
+
 interface ThumbnailConfig {
   /** The modelClassName of the graph this filter applies to */
   graph: string
@@ -53,6 +66,7 @@ interface GraphSpecificSettings {
   indexCharactersWarnOnly?: boolean
   filters?: Omit<FilterConfig, 'graph'>[]
   thumbnail?: Omit<ThumbnailConfig, 'graph'>[]
+  files?: Omit<FileConfig, 'graph'>[]
   indexTemplate?: string
 }
 
@@ -68,6 +82,7 @@ interface PrebuildConfiguration {
   customDatatypes?: {[datatype: string]: string}
   filters?: FilterConfig[]
   thumbnail?: ThumbnailConfig[]
+  files?: FileConfig[]
   graphSettings?: {[graphId: string]: GraphSpecificSettings}
   /** Business data files to preload as summaries for resource-instance name resolution */
   referenceSources?: string[]
@@ -140,4 +155,4 @@ interface IAssetFunctions {
 }
 
 export { Asset, ModelEntry, IndexEntry, DEFAULT_PREBUILD_PATHS };
-export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, GraphSpecificSettings, PrebuildSource, PrebuildPaths, FilterConfig };
+export type { AssetMetadata, IAssetFunctions, PrebuildConfiguration, GraphConfiguration, GraphSpecificSettings, PrebuildSource, PrebuildPaths, FilterConfig, FileConfig };

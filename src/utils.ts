@@ -3,6 +3,7 @@ import * as fs from "fs";
 import Handlebars from 'handlebars';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { slugify } from 'alizarin/inline';
 import { validatePathWithinBase } from './safe-utils';
 
 export const REGISTRIES: string[] = [];

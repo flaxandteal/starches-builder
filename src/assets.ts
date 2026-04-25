@@ -1,5 +1,5 @@
 import { Asset, ModelEntry } from "./types";
-import type { IAssetFunctions, GraphConfiguration, PrebuildConfiguration } from "./types";
+import type { IAssetFunctions, GraphConfiguration, PrebuildConfiguration, FileConfig } from "./types";
 import { GraphManager } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { PermissionManager } from './permissions';
@@ -7,6 +7,7 @@ import { TemplateManager } from './templates';
 import { SlugGenerator } from './slug-generator';
 import { MetadataExtractor } from './metadata-extractor';
 import { ResourceLoader } from './resource-loader';
+import type { WarningCollector } from './warning-collector';
 
 class AssetFunctions implements IAssetFunctions {
   config?: PrebuildConfiguration;
@@ -25,6 +26,10 @@ class AssetFunctions implements IAssetFunctions {
     this.slugGenerator = new SlugGenerator();
     this.metadataExtractor = new MetadataExtractor(this.slugGenerator, this.templateManager);
     this.resourceLoader = new ResourceLoader(this.permissionManager);
+  }
+
+  setWarningCollector(collector: WarningCollector) {
+    this.metadataExtractor.setWarningCollector(collector);
   }
 
   getPermittedModels() {
@@ -60,8 +65,12 @@ class AssetFunctions implements IAssetFunctions {
     return this.metadataExtractor.getMeta(asset, staticAsset, prefix, includePrivate, displayAsset);
   }
 
-  getAllFrom(graphManager: GraphManager, filename: string, includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
-    return this.resourceLoader.getAllFrom(graphManager, filename, includePrivate, this.getModelFiles(), lazy, this.config?.referenceSources);
+  getAllFrom(graphManager: GraphManager, filenames: string[], includePrivate: boolean, lazy: boolean = false): AsyncGenerator<any, void, unknown> {
+    return this.resourceLoader.getAllFrom(graphManager, filenames, includePrivate, this.getModelFiles(), lazy, this.config?.referenceSources);
+  }
+
+  getFilesConfig(graphId: string, modelType: string): FileConfig[] {
+    return this.metadataExtractor.getFilesConfig(graphId, modelType);
   }
 
   getModelFiles(): {[key: string]: ModelEntry} {

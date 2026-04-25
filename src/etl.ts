@@ -1,8 +1,5 @@
 import * as path from 'path';
 import * as fs from "fs";
-import { type Feature, type FeatureCollection, type Point } from 'geojson';
-import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
-
 import { version, slugify, staticTypes, client, RDM, graphManager, staticStore, viewModels, tracing } from 'alizarin/inline';
 // Import CLM to register display serializers for reference datatypes
 import '@alizarin/clm';
@@ -17,7 +14,8 @@ tracing.addGlobalExporter(globalSummaryExporter.export);
 import { Asset } from './types.ts';
 import { getFilesForRegex } from './utils.ts';
 import { assetFunctions } from './assets';
-import { safeJsonParse, safeJsonParseFile, safeJoinPath } from './safe-utils';
+import { safeJsonParse, safeJoinPath } from './safe-utils';
+import { WarningCollector } from './warning-collector';
 import type { GraphConfiguration, PrebuildSource } from './types';
 import { getProgressDisplay, enableProgress } from './progress.ts';
 
@@ -51,7 +49,7 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
     const archesClient = new client.ArchesClientLocal({
         allGraphFile: (() => "prebuild/graphs.json"),
         graphIdToGraphFile: ((graphId: string) => modelFiles?.[graphId] && `prebuild/graphs/resource_models/${modelFiles[graphId].name}`),
-        graphToGraphFile: ((graph: staticTypes.StaticGraphMeta) => graph.name && `prebuild/graphs/resource_models/${graph.name}.json`),
+        graphToGraphFile: ((graph: staticTypes.StaticGraphMeta) => graph.name ? `prebuild/graphs/resource_models/${graph.name}.json` : ""),
         graphIdToResourcesFiles: (async function* (graphId: string) {
           const sources = assetFunctions.config?.sources;
           if (sources) {
@@ -71,9 +69,9 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
         }),
         // resourceIdToFile: ((resourceId: string) => `public/resources/${resourceId}.json`),
         // RMV TODO: move collections and graphs to static
-        collectionIdToFile: ((collectionId: string) => `prebuild/reference_data/collections/${collectionId}.json`)
+        collectionIdToFile: ((collectionId: string) => `prebuild/reference_data/collections/${collectionId}.json`),
     });
-    archesClient.fs = fs;
+    (archesClient as any).fs = fs;
     graphManager.archesClient = archesClient;
     staticStore.archesClient = archesClient;
     RDM.archesClient = archesClient;
@@ -81,9 +79,11 @@ async function initAlizarin(resourcesFiles: string[] | null, modelFiles: GraphCo
 }
 
 let warned = false;
-async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel>, resourcePrefix: string | undefined, includePrivate: boolean=false, minify: boolean=false): Promise<Asset | null> {
-  return tracer.startActiveSpan('processAsset', async (span) => {
-    const asset = await assetPromise;
+async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceViewModel<any>>, resourcePrefix: string | undefined, includePrivate: boolean=false, minify: boolean=false): Promise<Asset | null> {
+  return tracer.startActiveSpan('processAsset', async (span: any) => {
+    // ViewModel internals (__.wkrm, $.resource, $.wasmWrapper) are dynamically
+    // typed and not fully expressed in alizarin's strict TS declarations.
+    const asset: any = await assetPromise;
     span.setAttribute('asset.id', asset.id || 'unknown');
 
     if (asset.__.wkrm.modelClassName !== "HeritageAsset") {
@@ -96,6 +96,86 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
       if (sd) {
         span.setAttribute('asset.soft_deleted', true);
         return null;
+      }
+    }
+
+    // Rewrite file URLs before forJson/getMeta so rewritten URLs propagate to thumbnails etc.
+    const graphId = asset.__.wkrm.graphId;
+    const modelType = asset.__.wkrm.modelClassName;
+    const resource = asset.$.resource;
+    const filesConfig = assetFunctions.getFilesConfig(graphId, modelType);
+    if (filesConfig.length > 0 && resource.tiles) {
+      const wasmWrapper = asset.$.wasmWrapper;
+
+      for (const fileConfig of filesConfig) {
+        const prefix = fileConfig.prefix.endsWith('/') ? fileConfig.prefix : fileConfig.prefix + '/';
+
+        // getValuesAtPath resolves path entirely in Rust — one FFI call, no async ViewModel walk.
+        // Returns PseudoList with tileId, nodeId, tileData on each entry.
+        let pseudoList;
+        try {
+          pseudoList = wasmWrapper.getValuesAtPath(fileConfig.node);
+        } catch (e) {
+          console.warn(`[files] Could not resolve path "${fileConfig.node}": ${e}`);
+          continue;
+        }
+
+        const count = pseudoList.totalValues;
+        if (count === 0) continue;
+
+        // Derive parent path for variant resolution (variants are sibling nodes)
+        const parentSegments = fileConfig.node.replace(/^\./, '').split('.');
+        parentSegments.pop();
+        const parentPath = parentSegments.join('.');
+
+        // Resolve variants via getValuesAtPath too — indexed by tileId for matching
+        const variantData: Array<{ sizeDir: string; byTile: Map<string, { nodeId: string; tileData: any }> }> = [];
+        if (fileConfig.variants) {
+          for (const [alias, sizeDir] of Object.entries(fileConfig.variants)) {
+            const variantPath = parentPath ? `.${parentPath}.${alias}` : `.${alias}`;
+            try {
+              const varPseudoList = wasmWrapper.getValuesAtPath(variantPath);
+              const byTile = new Map<string, { nodeId: string; tileData: any }>();
+              const varCount = varPseudoList.totalValues;
+              for (let j = 0; j < varCount; j++) {
+                const varEntry = varPseudoList.getValue(j);
+                const varTileId = varEntry.tileId;
+                if (varTileId) {
+                  byTile.set(varTileId, { nodeId: varEntry.nodeId, tileData: varEntry.tileData });
+                }
+              }
+              variantData.push({ sizeDir, byTile });
+            } catch (e) {
+              console.warn(`[files] Could not resolve variant path "${variantPath}": ${e}`);
+            }
+          }
+        }
+
+        for (let i = 0; i < count; i++) {
+          const pv = pseudoList.getValue(i);
+          const tileId = pv.tileId;
+          const nodeId = pv.nodeId;
+          const fileList = pv.tileData;
+
+          if (!tileId || !Array.isArray(fileList) || fileList.length !== 1) continue;
+          const entry = fileList[0];
+          if (!entry?.name) continue;
+          const name = encodeURI(entry.name);
+          entry.url = prefix + name;
+          resource.setTileDataForNode(tileId, nodeId, fileList);
+
+          // Rewrite variant URLs on the same tile
+          for (const { sizeDir, byTile } of variantData) {
+            const varInfo = byTile.get(tileId);
+            if (!varInfo) continue;
+            const variantList = varInfo.tileData;
+            if (!Array.isArray(variantList)) continue;
+            for (const varEntry of variantList) {
+              varEntry.url = prefix + sizeDir + '/' + name;
+            }
+            resource.setTileDataForNode(tileId, varInfo.nodeId, variantList);
+          }
+        }
       }
     }
 
@@ -112,6 +192,22 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
       return await assetFunctions.getMeta(asset, staticAsset.root, resourcePrefix, includePrivate, displayAsset.root);
     });
 
+    // Apply file URL rewrites to thumbnailUrl — getMeta reads from the stale ViewModel cache,
+    // so we rewrite the URL using the same prefix/variant logic applied to tiles above.
+    if (filesConfig.length > 0 && meta.meta.thumbnailUrl) {
+      const oldUrl: string = meta.meta.thumbnailUrl;
+      const filename = oldUrl.split('/').pop();
+      if (filename) {
+        for (const fileConfig of filesConfig) {
+          const thumbnailSizeDir = fileConfig.variants?.['thumbnail'];
+          if (!thumbnailSizeDir) continue;
+          const prefix = fileConfig.prefix.endsWith('/') ? fileConfig.prefix : fileConfig.prefix + '/';
+          meta.meta.thumbnailUrl = prefix + thumbnailSizeDir + '/' + encodeURI(filename);
+          break;
+        }
+      }
+    }
+
     const replacer = function (_: string, value: any) {
       if (value instanceof Map) {
         const result = Object.fromEntries(value);
@@ -124,7 +220,6 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     }
 
     await fs.promises.mkdir(`${PUBLIC_FOLDER}/definitions/business_data`, {"recursive": true});
-    const resource = asset.$.resource;
 
     // Build cache in getValueCache format: {tileId: {nodeId: entry}}
     // Entry formats:
@@ -149,7 +244,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
                   // Look up in staticStore registry
                   const cached = staticStore.registry.getFull(refId) || staticStore.registry.getSummary(refId);
                   if (cached) {
-                    const meta = cached.resourceinstance || cached;
+                    const meta = (cached as any).resourceinstance || cached;
                     const graphId = meta.graph_id;
                     // Get model class name from graphManager if available
                     const wkrm = [...graphManager.wkrms.values()].find((w: any) => w.graphId === graphId);
@@ -233,36 +328,20 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
   });
 }
 
-function extractFeatures(geoJsonString: string): Feature[] {
-  const geoJson = safeJsonParse(geoJsonString, 'GeoJSON string');
-  if (geoJson["type"] === "FeatureCollection") {
-    const features = geoJson["features"].filter(feat => feat);
-    return features;
-  }
-  const feature: Feature = {
-    type: geoJson["type"],
-    geometry: geoJson["geometry"],
-    properties: geoJson["properties"],
-  };
-  if (!feature.geometry) {
-    return [];
-  }
-  return [feature];
-}
-
-async function buildPreindex(graphManager: any, resourceFile: string | null, resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
+async function buildPreindex(graphManager: any, resourceFile: string | null, allResourceFiles: string[], resourcePrefix: string | undefined, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
     await graphManager.initialize({ graphs: null, defaultAllowAllNodegroups: includePrivate });
-    // Pass includePrivate to get() so the model is created with correct default permissions
-    const Registry = await graphManager.get("Registry", includePrivate);
-    await Registry.all();
     log("Loading for preindex: " + resourceFile);
     if (includePrivate) {
       log("Building for NON-PUBLIC assets");
     }
     log("Starting resource processing...");
 
+    if (!resourceFile) {
+      throw Error("Resource file is required for preindexing");
+    }
+
     // getAllFrom now returns an async generator to avoid accumulating all resources in memory
-    const assetGenerator = assetFunctions.getAllFrom(graphManager, resourceFile, includePrivate, lazy);
+    const assetGenerator = assetFunctions.getAllFrom(graphManager, allResourceFiles, includePrivate, lazy);
 
     const assetMetadata: Asset[] = [];
     const assocMetadata: Asset[] = [];
@@ -323,7 +402,7 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     // Process any remaining assets in the final partial batch
     if (batchAssets.length > 0) {
       let assetBatch: Asset[] = await tracer.startActiveSpan('processBatch', { 'batch.index': batchNumber, 'batch.size': batchAssets.length }, async () => {
-        const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate)));
+        const results = await Promise.all(batchAssets.map(a => processAsset(Promise.resolve(a), resourcePrefix, includePrivate, minify)));
         return results.filter(a => a !== null);
       });
 
@@ -383,7 +462,7 @@ async function buildPreindex(graphManager: any, resourceFile: string | null, res
     return Promise.all(promises);
 }
 
-async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false) {
+async function buildOnePreindex(resourceFile: string, resourcePrefix: string, includePrivate: boolean=false, lazy: boolean=false, minify: boolean=false, warningCollector?: WarningCollector) {
   const graphs = await ensureAssetFunctionsInitialized();
 
   let resourceFiles = [];
@@ -429,7 +508,10 @@ async function buildOnePreindex(resourceFile: string, resourcePrefix: string, in
     }
   }
   const gm = await initAlizarin(resourceFile ? resourceFiles : null, graphs.models || {});
-  await buildPreindex(gm, resourceFile || null, resourcePrefix, includePrivate, lazy, minify);
+  if (warningCollector) {
+    assetFunctions.setWarningCollector(warningCollector);
+  }
+  await buildPreindex(gm, resourceFile || null, resourceFiles, resourcePrefix, includePrivate, lazy, minify);
 }
 
 // Helper to log to either progress display or console
@@ -444,7 +526,7 @@ function progress(id: string, label: string, current: number, total: number) {
   display.progress(id, label, current, total);
 }
 
-export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false, minify: boolean=false) {
+export async function etl(resourceFile: string, resourcePrefix: string | undefined, includePrivate: boolean=false, useTui: boolean=false, lazy: boolean=false, showSummary: boolean=false, verbose: boolean=false, minify: boolean=false, buildRosMadair: boolean=false, rosMadairBin: string="build_from_prebuild", rosMadairOutput: string="docs/static/ros-madair") {
   if (!resourceFile.endsWith('.json')) {
     console.error(`Tried to run with a non .json file: ${resourceFile}`);
     process.exit(1);
@@ -457,13 +539,29 @@ export async function etl(resourceFile: string, resourcePrefix: string | undefin
   // Reset global summary at start of run
   globalSummaryExporter.reset();
 
+  const warningCollector = new WarningCollector(verbose);
+
   try {
     log("Pre-indexing " + resourceFile);
-    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy, minify);
+    await buildOnePreindex(resourceFile, resourcePrefix || "", includePrivate, lazy, minify, warningCollector);
+
+    if (buildRosMadair) {
+      log("Building Rós Madair index...");
+      const { buildRosMadairIndex } = await import('./ros-madair.ts');
+      await buildRosMadairIndex({
+        businessDataDir: `${PUBLIC_FOLDER}/definitions/business_data`,
+        graphsDir: 'prebuild/graphs/resource_models',
+        outputDir: rosMadairOutput,
+        bin: rosMadairBin,
+      });
+      log("Rós Madair index built.");
+    }
 
     if (useTui) {
       getProgressDisplay().finish();
     }
+
+    warningCollector.printSummary();
 
     // Print final summary if requested
     if (showSummary) {

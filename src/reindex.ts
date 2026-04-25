@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import * as pagefind from "pagefind";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
 import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin/inline';
@@ -144,7 +143,7 @@ async function processGraphs(
                     }
                     break;
                 case 'branches':
-                    publicationId = graph.publication.publicationid;
+                    publicationId = (graph as any).publication.publicationid;
                     if (!publicationId) {
                         console.warn("Branch", filename, "has no publication ID");
                     }
@@ -173,8 +172,12 @@ async function processGraphs(
 
         // rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
         const prunedGraph = rmw.graph.copy();
-        console.log("Loaded graph", target, filename);
-        await fs.promises.writeFile(`${target}/${filename}`, JSON.stringify({
+        // Use graph name as filename so alizarin's graphToGraphFile (which
+        // looks up `${graph.name}.json`) can find it reliably, regardless of
+        // what the original prebuild filename was (e.g. Archive_Source vs ArchiveSource).
+        const outputFilename = meta.name ? `${meta.name}.json` : filename;
+        console.log("Loaded graph", target, outputFilename, filename !== outputFilename ? `(was ${filename})` : '');
+        await fs.promises.writeFile(`${target}/${outputFilename}`, JSON.stringify({
             graph: [prunedGraph.toJSON()],
             __scope: ['public']
         }, undefined, minify ? undefined : 2));
@@ -213,23 +216,45 @@ async function copyReferenceData(
         };
         const collectionCount = (await Promise.all(models.map((model: ResourceModelWrapper<any>) => {
             return model.getCollections(true).map(async (collectionId: string) => {
-                const collectionFile = `${collections}/${collectionId}.json`;
-                const collection = await safeJsonParseFile(collectionFile);
-                if (FOR_ARCHES && collection.__source) {
-                    const collectionSource = collection.__source.collection;
-                    xmls.collections.add(collectionSource);
-                    collection.__source = {
-                        collection: path.basename(collectionSource),
-                        concepts: [...collection.__source.concepts].map((s: string) => {
-                            xmls.concepts.add(s);
-                            return path.basename(s);
-                        })
-                    };
+                const jsonFile = `${collections}/${collectionId}.json`;
+                const xmlFile = `${collections}/${collectionId}.xml`;
+                const hasJson = fs.existsSync(jsonFile);
+                const hasXml = fs.existsSync(xmlFile);
+
+                if (!hasJson && !hasXml) {
+                    console.warn(`Collection ${collectionId} not found as .json or .xml, skipping`);
+                    return;
                 }
-                return fs.promises.writeFile(
-                    `${outputDir}/definitions/reference_data/collections/${collectionId}.json`,
-                    JSON.stringify(collection, undefined, minify ? undefined : 2),
-                );
+
+                const copies: Promise<void>[] = [];
+
+                if (hasJson) {
+                    const collection = await safeJsonParseFile(jsonFile);
+                    if (FOR_ARCHES && collection.__source) {
+                        const collectionSource = collection.__source.collection;
+                        xmls.collections.add(collectionSource);
+                        collection.__source = {
+                            collection: path.basename(collectionSource),
+                            concepts: [...collection.__source.concepts].map((s: string) => {
+                                xmls.concepts.add(s);
+                                return path.basename(s);
+                            })
+                        };
+                    }
+                    copies.push(fs.promises.writeFile(
+                        `${outputDir}/definitions/reference_data/collections/${collectionId}.json`,
+                        JSON.stringify(collection, undefined, minify ? undefined : 2),
+                    ));
+                }
+
+                if (hasXml) {
+                    copies.push(fs.promises.copyFile(
+                        xmlFile,
+                        `${outputDir}/definitions/reference_data/collections/${collectionId}.xml`,
+                    ));
+                }
+
+                await Promise.all(copies);
             });
         }).flat())).length;
 

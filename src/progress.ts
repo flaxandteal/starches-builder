@@ -19,7 +19,6 @@ export class ProgressDisplay {
   private currentHeight: number = 0;
   private originalConsole: { log: typeof console.log; error: typeof console.error; warn: typeof console.warn } | null = null;
   private pendingRender: NodeJS.Timeout | null = null;
-  private hasNewLogs: boolean = false;
 
   constructor() {}
 
@@ -90,7 +89,6 @@ export class ProgressDisplay {
     for (const line of lines) {
       if (line.trim()) { // Skip empty lines
         this.logs.push(line);
-        this.hasNewLogs = true;
       }
     }
     this.render();
@@ -179,8 +177,6 @@ export class ProgressDisplay {
   private renderNow() {
     if (!this.isEnabled) return;
     this.lastRenderTime = Date.now();
-    this.hasNewLogs = false;
-
     // Calculate display height: at least MIN_HEIGHT, grows with number of progress bars
     const numProgressBars = this.progressBars.size;
     const height = Math.max(this.MIN_HEIGHT, numProgressBars > 0 ? numProgressBars : this.MIN_HEIGHT);

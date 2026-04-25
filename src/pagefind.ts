@@ -5,7 +5,7 @@ import { slugify } from 'alizarin/inline';
 import { REGISTRIES } from "./utils";
 import { DEFAULT_LANGUAGE } from "./config";
 import { safeJsonParse, safeJsonParseFile } from './safe-utils';
-import type { PrebuildConfiguration, FilterConfig } from './types';
+import type { PrebuildConfiguration } from './types';
 import { assetFunctions } from "./assets";
 
 export async function buildPagefind(files: string[] | null, publicFolder: string, includePrivate: boolean = false) {
@@ -84,7 +84,7 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
             filters: filters,
             meta: asset.meta
         };
-        const result = await index.addCustomRecord(record);
+        await index.addCustomRecord(record);
 
         recordCount += 1;
         urls.add(`${asset.meta.slug}`);

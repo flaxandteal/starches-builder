@@ -17,7 +17,7 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason, _promise) => {
   console.error('\nUnhandled Promise Rejection:');
   console.error(reason);
   process.exit(1);
@@ -53,6 +53,11 @@ yargs(hideBin(process.argv))
         default: "./public",
         description: "output directory for the site (usu. public or docs)",
         demandOption: true
+      })
+      .option("include-private", {
+        description: "include private (non-public) nodegroups and entries",
+        type: "boolean",
+        default: false
       })
       .option("minify", {
         description: "output individual JSONs without unnecessary whitespace",
@@ -90,17 +95,38 @@ yargs(hideBin(process.argv))
         type: "boolean",
         default: false
       })
+      .option("verbose", {
+        alias: 'v',
+        description: "print per-resource warnings during ETL",
+        type: "boolean",
+        default: false
+      })
       .option("minify", {
         description: "output individual JSONs without unnecessary whitespace",
         type: "boolean",
         default: false
       })
+      .option("build-ros-madair", {
+        description: "build a Rós Madair SPARQL index from the filtered business data",
+        type: "boolean",
+        default: false
+      })
+      .option("ros-madair-bin", {
+        description: "path to the build_from_prebuild binary (default: search PATH)",
+        type: "string",
+        default: "build_from_prebuild"
+      })
+      .option("ros-madair-output", {
+        description: "output directory for the Rós Madair index",
+        type: "string",
+        default: "docs/static/ros-madair"
+      })
   }, async (argv) => {
-    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.minify as boolean);
+    await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.verbose as boolean, argv.minify as boolean, argv.buildRosMadair as boolean, argv.rosMadairBin as string, argv.rosMadairOutput as string);
   })
   .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
     return yargs
-  }, async (argv) => {
+  }, async (_argv) => {
     await cli_precompile();
   })
   .help()
