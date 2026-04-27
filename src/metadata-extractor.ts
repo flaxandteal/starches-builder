@@ -6,6 +6,21 @@ import type { SlugGenerator } from "./slug-generator";
 import { TemplateManager } from './templates';
 import type { WarningCollector } from './warning-collector';
 
+/** Recursively convert Maps (from serde_wasm_bindgen) to plain objects. */
+function mapsToObjects(val: unknown): unknown {
+  if (val instanceof Map) {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of val) {
+      obj[k] = mapsToObjects(v);
+    }
+    return obj;
+  }
+  if (Array.isArray(val)) {
+    return val.map(mapsToObjects);
+  }
+  return val;
+}
+
 /**
  * Resolve a dot-path that may contain numeric index segments
  * (e.g. "location_data.geometry.0.geospatial_coordinates").
@@ -152,7 +167,7 @@ export class MetadataExtractor {
     try {
       const geoList = resolveIndexedPath(wasmWrapper, geometryPath);
       if (geoList.totalValues > 0) {
-        geometry = Object.fromEntries(geoList.getValue(0)?.tileData);
+        geometry = mapsToObjects(geoList.getValue(0)?.tileData);
       }
     } catch (e) {
       this.warningCollector?.debug("geometry path not found", `${displayName}: geometry path '${geometryPath}' not found: ${e}`);
@@ -163,7 +178,7 @@ export class MetadataExtractor {
     try {
       const locList = resolveIndexedPath(wasmWrapper, locationPath);
       if (locList.totalValues > 0) {
-        location = Object.fromEntries(locList.getValue(0)?.tileData);
+        location = mapsToObjects(locList.getValue(0)?.tileData);
       }
     } catch (e) {
       this.warningCollector?.debug("location path not found", `${displayName}: location path '${locationPath}' not found: ${e}`);
