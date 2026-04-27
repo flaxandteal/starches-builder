@@ -48,7 +48,8 @@ export async function getLocations(index: pagefind.PagefindIndex, assetMetadata:
                     console.warn(`Asset ${asset.meta.slug} not found in pagefind index, skipping location`);
                     return undefined;
                 }
-                if (Array.isArray(loc)) {
+                if (Array.isArray(loc) && loc.length >= 2
+                    && Number.isFinite(loc[0]) && Number.isFinite(loc[1])) {
                   // Build properties, excluding undefined values (flatgeobuf can't serialize undefined)
                   const properties: Record<string, unknown> = {
                         url: `/asset/?slug=${asset.meta.slug}`,

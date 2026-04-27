@@ -115,7 +115,7 @@ export async function buildPagefind(files: string[] | null, publicFolder: string
         outputPath: `${publicFolder}/pagefind`
     });
     const catalogue = await index.getIndexCatalogue();
-    console.log("Added", catalogue.entries.length, "entries in catalogue");
+    console.log("Added", catalogue?.entries?.length ?? 0, "entries in catalogue");
 
     return { index, assetMetadata };
 }

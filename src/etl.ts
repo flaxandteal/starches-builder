@@ -123,16 +123,14 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
         const count = pseudoList.totalValues;
         if (count === 0) continue;
 
-        // Derive parent path for variant resolution (variants are sibling nodes)
-        const parentSegments = fileConfig.node.replace(/^\./, '').split('.');
-        parentSegments.pop();
-        const parentPath = parentSegments.join('.');
+        // Resolve variants as children of the file node (e.g. .images.thumbnail)
+        const nodePath = fileConfig.node.replace(/^\./, '');
 
         // Resolve variants via getValuesAtPath too — indexed by tileId for matching
         const variantData: Array<{ sizeDir: string; byTile: Map<string, { nodeId: string; tileData: any }> }> = [];
         if (fileConfig.variants) {
           for (const [alias, sizeDir] of Object.entries(fileConfig.variants)) {
-            const variantPath = parentPath ? `.${parentPath}.${alias}` : `.${alias}`;
+            const variantPath = `.${nodePath}.${alias}`;
             try {
               const varPseudoList = wasmWrapper.getValuesAtPath(variantPath);
               const byTile = new Map<string, { nodeId: string; tileData: any }>();

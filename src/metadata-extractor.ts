@@ -6,6 +6,60 @@ import type { SlugGenerator } from "./slug-generator";
 import { TemplateManager } from './templates';
 import type { WarningCollector } from './warning-collector';
 
+/**
+ * Resolve a dot-path that may contain numeric index segments
+ * (e.g. "location_data.geometry.0.geospatial_coordinates").
+ *
+ * At each numeric segment N, resolves the path so far, sorts tiles
+ * by sortorder, picks the Nth, and uses its tileId as filter_tile_id
+ * for subsequent resolution.
+ *
+ * Returns the same PseudoList as getValuesAtPath.
+ */
+function resolveIndexedPath(wasmWrapper: any, path: string): any {
+  const segments = path.replace(/^\./, '').split('.');
+
+  // Quick check: if no numeric segments, pass straight through
+  if (!segments.some(s => /^\d+$/.test(s))) {
+    return wasmWrapper.getValuesAtPath(path);
+  }
+
+  const aliasSegments: string[] = [];   // accumulated alias path
+  let filterTileId: string | undefined;
+
+  for (const seg of segments) {
+    if (/^\d+$/.test(seg)) {
+      // Numeric index — resolve the path so far, pick the Nth tile
+      const currentPath = aliasSegments.join('.');
+      const list = wasmWrapper.getValuesAtPath(currentPath, filterTileId);
+      const allValues = list.getAllValues?.() ?? [];
+
+      const sorted = [...allValues].sort((a: any, b: any) => {
+        const sa = a.sortorder ?? Number.MAX_SAFE_INTEGER;
+        const sb = b.sortorder ?? Number.MAX_SAFE_INTEGER;
+        return sa - sb;
+      });
+
+      const index = parseInt(seg, 10);
+      if (index >= sorted.length) {
+        throw new Error(
+          `Index ${index} out of bounds for path "${currentPath}" (${sorted.length} tiles)`
+        );
+      }
+
+      filterTileId = sorted[index].tileId;
+      if (!filterTileId) {
+        throw new Error(`Tile at index ${index} of "${currentPath}" has no tileId`);
+      }
+    } else {
+      aliasSegments.push(seg);
+    }
+  }
+
+  // Final resolution with the accumulated alias path and last filter
+  return wasmWrapper.getValuesAtPath(aliasSegments.join('.'), filterTileId);
+}
+
 interface ResolvedGraphConfig {
   paths: {[key: string]: string}
   indexCharacters: number
@@ -96,7 +150,7 @@ export class MetadataExtractor {
     const geometryPath = gc.paths["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
     let geometry = null;
     try {
-      const geoList = wasmWrapper.getValuesAtPath(geometryPath);
+      const geoList = resolveIndexedPath(wasmWrapper, geometryPath);
       if (geoList.totalValues > 0) {
         geometry = Object.fromEntries(geoList.getValue(0)?.tileData);
       }
@@ -107,7 +161,7 @@ export class MetadataExtractor {
     const locationPath = gc.paths["location"] ?? DEFAULT_PREBUILD_PATHS.location;
     let location = null;
     try {
-      const locList = wasmWrapper.getValuesAtPath(locationPath);
+      const locList = resolveIndexedPath(wasmWrapper, locationPath);
       if (locList.totalValues > 0) {
         location = Object.fromEntries(locList.getValue(0)?.tileData);
       }
@@ -121,7 +175,9 @@ export class MetadataExtractor {
       if (location["features"]) {
         const polygons = [];
         for (const feature of location["features"]) {
-          polygons.push(feature["geometry"]["coordinates"]);
+          if (feature?.geometry?.coordinates) {
+            polygons.push(feature["geometry"]["coordinates"]);
+          }
         }
         polygon = polygons.flat();
       } else if (location["coordinates"]) {
@@ -149,8 +205,8 @@ export class MetadataExtractor {
         }
       }
     }
-    if (location && location["features"]) {
-      location = location["features"][0]["geometry"]["coordinates"];
+    if (location && location["features"] && location["features"][0]) {
+      location = location.features[0].geometry?.coordinates;
     } else if (location && location["coordinates"]) {
       location = location["coordinates"];
     } else {
