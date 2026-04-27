@@ -98,7 +98,7 @@ export class MetadataExtractor {
     try {
       const geoList = wasmWrapper.getValuesAtPath(geometryPath);
       if (geoList.totalValues > 0) {
-        geometry = geoList.getValue(0)?.tileData;
+        geometry = Object.fromEntries(geoList.getValue(0)?.tileData);
       }
     } catch (e) {
       this.warningCollector?.debug("geometry path not found", `${displayName}: geometry path '${geometryPath}' not found: ${e}`);
@@ -109,7 +109,7 @@ export class MetadataExtractor {
     try {
       const locList = wasmWrapper.getValuesAtPath(locationPath);
       if (locList.totalValues > 0) {
-        location = locList.getValue(0)?.tileData;
+        location = Object.fromEntries(locList.getValue(0)?.tileData);
       }
     } catch (e) {
       this.warningCollector?.debug("location path not found", `${displayName}: location path '${locationPath}' not found: ${e}`);
@@ -119,7 +119,11 @@ export class MetadataExtractor {
     let polygon;
     if (location) {
       if (location["features"]) {
-        polygon = location["features"][0]["geometry"]["coordinates"];
+        const polygons = [];
+        for (const feature of location["features"]) {
+          polygons.push(feature["geometry"]["coordinates"]);
+        }
+        polygon = polygons.flat();
       } else if (location["coordinates"]) {
         polygon = location["coordinates"];
       }
