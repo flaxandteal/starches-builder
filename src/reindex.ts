@@ -171,14 +171,17 @@ async function processGraphs(
         // }
 
         // rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
-        const prunedGraph = rmw.graph.copy();
+        // Deep-copy the graph: WASM has .copy(), NAPI returns a plain object
+        const graph = rmw.graph;
+        const prunedGraph = typeof graph.copy === 'function' ? graph.copy() : structuredClone(graph);
         // Use graph name as filename so alizarin's graphToGraphFile (which
         // looks up `${graph.name}.json`) can find it reliably, regardless of
         // what the original prebuild filename was (e.g. Archive_Source vs ArchiveSource).
         const outputFilename = meta.name ? `${meta.name}.json` : filename;
         console.log("Loaded graph", target, outputFilename, filename !== outputFilename ? `(was ${filename})` : '');
+        const graphJson = typeof prunedGraph.toJSON === 'function' ? prunedGraph.toJSON() : prunedGraph;
         await fs.promises.writeFile(`${target}/${outputFilename}`, JSON.stringify({
-            graph: [prunedGraph.toJSON()],
+            graph: [graphJson],
             __scope: ['public']
         }, undefined, minify ? undefined : 2));
 
