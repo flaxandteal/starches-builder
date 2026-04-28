@@ -172,8 +172,8 @@ async function processGraphs(
 
         // rmw.pruneGraph(["e7362891-3b9a-46a9-a39d-2f03222771c4", "60000000-0000-0000-0000-000000000001"]);
         // Deep-copy the graph: WASM has .copy(), NAPI returns a plain object
-        const graph = rmw.graph;
-        const prunedGraph = typeof graph.copy === 'function' ? graph.copy() : structuredClone(graph);
+        const rawGraph = rmw.graph;
+        const prunedGraph = typeof rawGraph.copy === 'function' ? rawGraph.copy() : structuredClone(rawGraph);
         // Use graph name as filename so alizarin's graphToGraphFile (which
         // looks up `${graph.name}.json`) can find it reliably, regardless of
         // what the original prebuild filename was (e.g. Archive_Source vs ArchiveSource).
