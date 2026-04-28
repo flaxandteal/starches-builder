@@ -4,7 +4,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { cli_index, cli_etl, cli_precompile } from './cli/index.ts';
 import { init } from './init.ts';
-import { version as alizarinVersion, autoDetectBackend, setBackend, getBackend } from 'alizarin/inline';
+import { createRequire } from 'module';
+import { version as alizarinVersion, autoDetectBackend, setBackend, setNapiModule, getBackend } from 'alizarin/inline';
 
 // Version injected at build time by tsup
 declare const __STARCHES_BUILDER_VERSION__: string;
@@ -22,6 +23,15 @@ process.on('unhandledRejection', (reason, _promise) => {
   console.error(reason);
   process.exit(1);
 });
+
+// Pre-load the NAPI module so alizarin can find it (require() inside alizarin's
+// bundled dist may not resolve @alizarin/napi from the consumer's node_modules).
+try {
+  const require_ = createRequire(import.meta.url);
+  setNapiModule(require_('@alizarin/napi'));
+} catch {
+  // NAPI not available — autoDetectBackend will fall back to WASM
+}
 
 // Auto-detect best backend (NAPI in Node.js when available, WASM fallback).
 // Can be overridden with ALIZARIN_BACKEND=wasm|napi env var.
