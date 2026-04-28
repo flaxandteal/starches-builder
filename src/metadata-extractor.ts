@@ -163,22 +163,22 @@ export class MetadataExtractor {
     const wasmWrapper = asset.$.wasmWrapper;
 
     const geometryPath = gc.paths["geometry"] ?? DEFAULT_PREBUILD_PATHS.geometry;
-    let geometry = null;
+    let geometry: Record<string, any> | null = null;
     try {
       const geoList = resolveIndexedPath(wasmWrapper, geometryPath);
       if (geoList.totalValues > 0) {
-        geometry = mapsToObjects(geoList.getValue(0)?.tileData);
+        geometry = mapsToObjects(geoList.getValue(0)?.tileData) as Record<string, any> | null;
       }
     } catch (e) {
       this.warningCollector?.debug("geometry path not found", `${displayName}: geometry path '${geometryPath}' not found: ${e}`);
     }
 
     const locationPath = gc.paths["location"] ?? DEFAULT_PREBUILD_PATHS.location;
-    let location = null;
+    let location: Record<string, any> | null = null;
     try {
       const locList = resolveIndexedPath(wasmWrapper, locationPath);
       if (locList.totalValues > 0) {
-        location = mapsToObjects(locList.getValue(0)?.tileData);
+        location = mapsToObjects(locList.getValue(0)?.tileData) as Record<string, any> | null;
       }
     } catch (e) {
       this.warningCollector?.debug("location path not found", `${displayName}: location path '${locationPath}' not found: ${e}`);

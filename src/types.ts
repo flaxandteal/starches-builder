@@ -120,7 +120,7 @@ class Asset {
   slug: string;
   type: string;
 
-  constructor(resourceinstanceid: string, graphid: string, geometry: object, location: object, title: string, slug: string, content: string, type: string, scopes: string[]) {
+  constructor(resourceinstanceid: string, graphid: string, geometry: object | null, location: object | null, title: string, slug: string, content: string, type: string, scopes: string[]) {
     this.meta = {
       resourceinstanceid,
       graphid,

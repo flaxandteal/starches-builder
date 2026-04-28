@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { serialize as fgbSerialize } from 'flatgeobuf/lib/mjs/geojson.js';
 import { type FeatureCollection, type Feature } from "geojson";
-import { WKRM, ResourceModelWrapper, staticTypes } from 'alizarin/inline';
+import { createWKRM, ResourceModelWrapper, staticTypes } from 'alizarin/inline';
 
 import { IndexEntry } from "./types";
 import { getLocations } from "./locations";
@@ -130,7 +130,7 @@ async function processGraphs(
         // Build metadata first - WKRM expects StaticGraphMeta (with counts), not full StaticGraph (with arrays)
         const meta = buildGraphMetadata(graph);
         // Ensure clean plain object for WASM deserialization
-        const wkrm = new WKRM(meta);
+        const wkrm = createWKRM(meta);
         const rmw = new ResourceModelWrapper(wkrm, graph, undefined, true);
         let publicationId;
         const publicModels = assetFunctions.getPermittedModels()
