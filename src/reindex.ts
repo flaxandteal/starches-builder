@@ -35,6 +35,9 @@ async function loadGraphsFromDefinitions(definitionsDir: string, outputDir: stri
 
     const graphs: GraphInfo[] = [];
     for (const [type, location] of dir) {
+        if (!fs.existsSync(location)) {
+            continue;
+        }
         for (const filename of (await fs.promises.readdir(location))) {
             if (!filename.endsWith('json') || filename.startsWith('_')) {
                 continue;
