@@ -13,6 +13,21 @@ tracing.addGlobalExporter(globalSummaryExporter.export);
 
 import { Asset } from './types.ts';
 import { getFilesForRegex } from './utils.ts';
+import { mapsToObjects } from './metadata-extractor.ts';
+
+/**
+ * Set tile data for a node via the instance wrapper.
+ * Both WASM and NAPI wrappers now expose setTileDataForNode directly.
+ * The wrapper's tile store is what getValuesAtPath / forJson read from,
+ * so mutations must go through it (not the StaticResource, which holds
+ * an independent clone in WASM mode).
+ */
+export function setTileDataForNode(resource: any, wasmWrapper: any, tileId: string, nodeId: string, value: any): boolean {
+  if (typeof wasmWrapper.setTileDataForNode !== 'function') {
+    throw new Error('setTileDataForNode not available on instance wrapper — is the backend module up to date?');
+  }
+  return wasmWrapper.setTileDataForNode(tileId, nodeId, value);
+}
 import { assetFunctions } from './assets';
 import { safeJsonParse, safeJoinPath } from './safe-utils';
 import { WarningCollector } from './warning-collector';
@@ -156,11 +171,13 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
           const fileList = pv.tileData;
 
           if (!tileId || !Array.isArray(fileList) || fileList.length !== 1) continue;
-          const entry = fileList[0];
+          const entry = mapsToObjects(fileList[0]) as any;
           if (!entry?.name) continue;
+          // Skip rewrite if matchUrlPrefix is set and the existing URL doesn't match
+          if (fileConfig.matchUrlPrefix && (!entry.url || !entry.url.startsWith(fileConfig.matchUrlPrefix))) continue;
           const name = encodeURI(entry.name);
           entry.url = prefix + name;
-          resource.setTileDataForNode(tileId, nodeId, fileList);
+          setTileDataForNode(resource, wasmWrapper, tileId, nodeId, [entry]);
 
           // Rewrite variant URLs on the same tile
           for (const { sizeDir, byTile } of variantData) {
@@ -168,13 +185,24 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
             if (!varInfo) continue;
             const variantList = varInfo.tileData;
             if (!Array.isArray(variantList)) continue;
-            for (const varEntry of variantList) {
-              varEntry.url = prefix + sizeDir + '/' + name;
-            }
-            resource.setTileDataForNode(tileId, varInfo.nodeId, variantList);
+            const converted = variantList.map((v: unknown) => {
+              const obj = mapsToObjects(v) as any;
+              obj.url = prefix + sizeDir + '/' + name;
+              return obj;
+            });
+            setTileDataForNode(resource, wasmWrapper, tileId, varInfo.nodeId, converted);
           }
         }
       }
+    }
+
+
+    // TILES SHOULD BE CONSIDERED IMMUTABLE FROM HERE, AS WE TAKE THEM BACK FROM ALIZARIN
+
+    // Export tiles from the wrapper — this includes mutations from setTileDataForNode
+    // and only tiles that passed permission filtering.
+    if (asset.$.wasmWrapper && typeof asset.$.wasmWrapper.exportTilesJson === 'function') {
+      resource.tiles = JSON.parse(asset.$.wasmWrapper.exportTilesJson());
     }
 
     const staticAsset = await tracer.startActiveSpan('forJson', async () => {
@@ -199,8 +227,10 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
         for (const fileConfig of filesConfig) {
           const thumbnailSizeDir = fileConfig.variants?.['thumbnail'];
           if (!thumbnailSizeDir) continue;
+          // Skip if matchUrlPrefix is set and the existing thumbnail URL doesn't match
+          if (fileConfig.matchUrlPrefix && !oldUrl.startsWith(fileConfig.matchUrlPrefix)) continue;
           const prefix = fileConfig.prefix.endsWith('/') ? fileConfig.prefix : fileConfig.prefix + '/';
-          meta.meta.thumbnailUrl = prefix + thumbnailSizeDir + '/' + encodeURI(filename);
+          meta.meta.thumbnailUrl = prefix + thumbnailSizeDir + '/' + filename;
           break;
         }
       }
@@ -308,13 +338,6 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
 
     resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');
     resource.metadata = meta.meta;
-
-    // Filter tiles to only include those that passed permission filtering
-    // The WASM wrapper only stores tiles that passed conditional permission rules
-    if (resource.tiles && asset.$.wasmWrapper) {
-      const permittedTileIds = new Set(asset.$.wasmWrapper.getAllTileIds());
-      resource.tiles = resource.tiles.filter((tile: any) => permittedTileIds.has(tile.tileid));
-    }
 
     const serial = JSON.stringify(resource, replacer, minify ? undefined : 2)
     const businessDataDir = `${PUBLIC_FOLDER}/definitions/business_data`;

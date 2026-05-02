@@ -49,6 +49,8 @@ interface FileConfig {
    *  e.g. { "thumbnail": "m240", "preview": "m800" }
    *  Results in: prefix + 'm240/' + entry.name, prefix + 'm800/' + entry.name */
   variants?: {[alias: string]: string}
+  /** If set, only rewrite URLs that already start with this prefix */
+  matchUrlPrefix?: string
 }
 
 interface ThumbnailConfig {

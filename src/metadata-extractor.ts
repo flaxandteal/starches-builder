@@ -7,7 +7,7 @@ import { TemplateManager } from './templates';
 import type { WarningCollector } from './warning-collector';
 
 /** Recursively convert Maps (from serde_wasm_bindgen) to plain objects. */
-function mapsToObjects(val: unknown): unknown {
+export function mapsToObjects(val: unknown): unknown {
   if (val instanceof Map) {
     const obj: Record<string, unknown> = {};
     for (const [k, v] of val) {
@@ -143,7 +143,7 @@ export class MetadataExtractor {
     return this.resolveGraphConfig(graphId, modelType).files;
   }
 
-  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, _includePrivate: boolean, displayAsset?: any): Promise<Asset> {
+  async getMeta(asset: any, staticAsset: any, prefix: string | undefined, includePrivate: boolean, displayAsset?: any): Promise<Asset> {
     /**
      * getMeta will use the staticAsset where possible, but that _can_ be dynamic (i.e. raw asset) if you have
      * not already serialized.
@@ -239,7 +239,7 @@ export class MetadataExtractor {
       slug,
       "",
       modelType,
-      asset.$.resource.scopes || []
+      (asset.$.resource.scopes || []).map((s: string) => includePrivate && s === "public" ? "mixed" : s)
     );
     meta.meta["registries"] = "[]";
 
@@ -361,9 +361,9 @@ export class MetadataExtractor {
         const thumbValues = thumbList.getAllValues?.() ?? [];
 
         for (const thumbPv of thumbValues) {
-          const td = thumbPv.tileData;
-          const url = td?.url;
-          const index = td?.file_id != null ? td?.index : undefined;
+          const td = mapsToObjects(thumbPv.tileData) as Record<string, any> | null;
+          const url = td && td[0]?.url;
+          const index = td && td[0]?.index;
           if (url && Number.isInteger(index)) {
             meta.meta.thumbnailUrl = url;
             // Get alt_text from sibling — filter by parent tile
@@ -373,7 +373,7 @@ export class MetadataExtractor {
                 thumbPv.tileId
               );
               if (altList.totalValues > 0) {
-                meta.meta.thumbnailAltText = altList.getValue(0)?.tileData || '';
+                meta.meta.thumbnailAltText = mapsToObjects(altList.getValue(0)?.tileData) || '';
               }
             } catch (e) {
               this.warningCollector?.debug("alt text path not found", `${displayName}: alt_text path not found for thumbnail: ${e}`);
