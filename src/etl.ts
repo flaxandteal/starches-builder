@@ -168,15 +168,24 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
           const pv = pseudoList.getValue(i);
           const tileId = pv.tileId;
           const nodeId = pv.nodeId;
-          const fileList = pv.tileData;
+          let fileList = pv.tileData;
 
+          if (fileList instanceof Map) {
+            fileList = [fileList];
+          }
           if (!tileId || !Array.isArray(fileList) || fileList.length !== 1) continue;
           const entry = mapsToObjects(fileList[0]) as any;
           if (!entry?.name) continue;
           // Skip rewrite if matchUrlPrefix is set and the existing URL doesn't match
-          if (fileConfig.matchUrlPrefix && (!entry.url || !entry.url.startsWith(fileConfig.matchUrlPrefix))) continue;
           const name = encodeURI(entry.name);
-          entry.url = prefix + name;
+          if (fileConfig.matchUrlPrefix) {
+            if (!entry.url || !entry.url.startsWith(fileConfig.matchUrlPrefix)) {
+              continue;
+            }
+            entry.url = prefix + entry.url.substr(fileConfig.matchUrlPrefix.length + 1);
+          } else {
+            entry.url = prefix + name;
+          }
           setTileDataForNode(resource, wasmWrapper, tileId, nodeId, [entry]);
 
           // Rewrite variant URLs on the same tile
