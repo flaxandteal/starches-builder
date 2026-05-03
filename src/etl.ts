@@ -350,19 +350,22 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
     // Collect registry slugs via alizarin ViewModel (replaces the old
     // loadRegistriesFromRefs which crashed under NAPI).
     const registrySlugs: string[] = [];
-    try {
-      const membership = asset.record_and_registry_membership;
-      const count = await membership.length;
-      for (let i = 0; i < count; i++) {
-        const registry = await membership[i].record_or_registry;
-        if (registry) {
-          const slug = await registry.getSlug();
-          if (slug && !registrySlugs.includes(slug)) {
-            registrySlugs.push(slug);
+    if (await asset.__has('record_and_registry_membership')) {
+      try {
+        const membership = await asset.record_and_registry_membership;
+        const count = await membership.length;
+        for (let i = 0; i < count; i++) {
+          const entry = await membership[i];
+          const registry = await entry.record_or_registry;
+          if (registry) {
+            const slug = await registry.getSlug();
+            if (slug && !registrySlugs.includes(slug)) {
+              registrySlugs.push(slug);
+            }
           }
         }
-      }
-    } catch { /* model has no record_and_registry_membership node */ }
+      } catch { /* failed to resolve registry references */ }
+    }
     if (registrySlugs.length > 0) {
       meta.meta["registries"] = JSON.stringify(registrySlugs);
     }
