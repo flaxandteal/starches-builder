@@ -2,7 +2,7 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { cli_index, cli_etl, cli_precompile } from './cli/index.ts';
+import { cli_index, cli_etl, cli_precompile, cli_build_ros_madair } from './cli/index.ts';
 import { init } from './init.ts';
 import { createRequire } from 'module';
 import { version as alizarinVersion, autoDetectBackend, setBackend, setNapiModule, getBackend } from 'alizarin/inline';
@@ -138,6 +138,31 @@ yargs(hideBin(process.argv))
       })
   }, async (argv) => {
     await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.verbose as boolean, argv.minify as boolean, argv.buildRosMadair as boolean, argv.rosMadairBin as string, argv.rosMadairOutput as string);
+  })
+  .command("build-ros-madair", "build Rós Madair SPARQL index from filtered business data", function (yargs) {
+    return yargs
+      .option("business-data-dir", {
+        description: "directory containing filtered business_data JSON files",
+        type: "string",
+        default: "docs/definitions/business_data"
+      })
+      .option("graphs-dir", {
+        description: "directory containing graph definition JSON files",
+        type: "string",
+        default: "prebuild/graphs/resource_models"
+      })
+      .option("output", {
+        description: "output directory for the Rós Madair index",
+        type: "string",
+        default: "docs/static/ros-madair"
+      })
+      .option("bin", {
+        description: "path to the ros-madair-build binary",
+        type: "string",
+        default: "ros-madair-build"
+      })
+  }, async (argv) => {
+    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string);
   })
   .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
     return yargs

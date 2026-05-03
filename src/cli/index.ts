@@ -3,6 +3,7 @@ import path from "path";
 import { reindex } from "../reindex.ts";
 import { etl } from "../etl.ts";
 import { precompileTemplates } from "../precompile-templates.ts";
+import { buildRosMadairIndex } from "../ros-madair.ts";
 
 export async function cli_index(definitions: string, preIndexDirectory: string, site: string, includePrivate: boolean, minify: boolean) {
   const preIndexFiles: string[] = [];
@@ -33,4 +34,8 @@ export async function cli_etl(resourceFile: string, resourcePrefix: string | und
 
 export async function cli_precompile() {
   return precompileTemplates();
+}
+
+export async function cli_build_ros_madair(businessDataDir: string, graphsDir: string, outputDir: string, bin: string) {
+  return buildRosMadairIndex({ businessDataDir, graphsDir, outputDir, bin });
 }
