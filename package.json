@@ -1,6 +1,6 @@
 {
   "name": "starches-builder",
-  "version": "2.0.0-alpha.88",
+  "version": "2.0.0-alpha.90",
   "description": "Alizarin builder for Hugo",
   "keywords": [
     "static",
@@ -74,11 +74,11 @@
     "typescript-eslint": "^8.29.0"
   },
   "dependencies": {
-    "@alizarin/clm": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.89/alizarin-clm-2.0.0-alpha.89.tgz",
-    "@alizarin/filelist": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.89/alizarin-filelist-2.0.0-alpha.89.tgz",
-    "@alizarin/napi": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.89/alizarin-napi-2.0.0-alpha.89.tgz",
+    "@alizarin/clm": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.90/alizarin-clm-2.0.0-alpha.90.tgz",
+    "@alizarin/filelist": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.90/alizarin-filelist-2.0.0-alpha.90.tgz",
+    "@alizarin/napi": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.90/alizarin-napi-2.0.0-alpha.90.tgz",
     "@types/blessed": "^0.1.26",
-    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.89/alizarin-2.0.0-alpha.89.tgz",
+    "alizarin": "https://github.com/flaxandteal/alizarin/releases/download/v2.0.0-alpha.90/alizarin-2.0.0-alpha.90.tgz",
     "blessed": "^0.1.81",
     "flatbush": "^4.5.0",
     "flatgeobuf": "^4.1.1",

@@ -260,9 +260,10 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
 
     // Build cache in getValueCache format: {tileId: {nodeId: entry}}
     // Entry formats:
-    // - resource-instance: {datatype, id, type, graphId, title}
+    // - resource-instance: {datatype, id, type, graphId, title, descriptors}
     // - resource-instance-list: {datatype, _: [...entries...], meta}
-    type SingleCacheEntry = {datatype: string, id: string, type: string, graphId: string, title?: string, meta?: any};
+    type ResourceDescriptors = {name?: string | null, description?: string | null, slug?: string | null, map_popup?: string | null};
+    type SingleCacheEntry = {datatype: string, id: string, type: string, graphId: string, title?: string, descriptors?: ResourceDescriptors | null, meta?: any};
     type ListCacheEntry = {datatype: string, _: SingleCacheEntry[], meta?: any};
     type CacheEntry = SingleCacheEntry | ListCacheEntry;
 
@@ -301,6 +302,7 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
                       type: modelClassName,
                       graphId: graphId,
                       title: meta.name || meta.descriptors?.name || undefined,
+                      descriptors: meta.descriptors || null,
                     });
                   }
                 }
@@ -343,6 +345,26 @@ async function processAsset(assetPromise: Promise<viewModels.ResourceInstanceVie
         }
       }
       resource.__cache = existingCache;
+    }
+
+    // Collect registry slugs via alizarin ViewModel (replaces the old
+    // loadRegistriesFromRefs which crashed under NAPI).
+    const registrySlugs: string[] = [];
+    try {
+      const membership = asset.record_and_registry_membership;
+      const count = await membership.length;
+      for (let i = 0; i < count; i++) {
+        const registry = await membership[i].record_or_registry;
+        if (registry) {
+          const slug = await registry.getSlug();
+          if (slug && !registrySlugs.includes(slug)) {
+            registrySlugs.push(slug);
+          }
+        }
+      }
+    } catch { /* model has no record_and_registry_membership node */ }
+    if (registrySlugs.length > 0) {
+      meta.meta["registries"] = JSON.stringify(registrySlugs);
     }
 
     resource.__scopes = resource.__scopes || safeJsonParse(meta.meta.scopes, 'resource scopes');

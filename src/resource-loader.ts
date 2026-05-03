@@ -18,50 +18,9 @@ interface ResourceRef {
 
 export class ResourceLoader {
   permissionManager: PermissionManager;
-  registries: {[key: string]: any} = {};
 
   constructor(permissionManager: PermissionManager) {
     this.permissionManager = permissionManager;
-  }
-
-  /**
-   * Extract registry names from pre-loaded refs (avoids calling .all() which
-   * triggers ArchesClientLocal.getResources and hits V8 string limit on large files).
-   */
-  async loadRegistriesFromRefs(registryModel: any, refs: ResourceRef[]) {
-    const display = getProgressDisplay();
-
-    const registryGraphId = registryModel.wkrm.graphId;
-    const registryRefs = refs.filter(r => r.graph_id === registryGraphId);
-    display.log(`Found ${registryRefs.length} registry resources, extracting names...`);
-
-    const entries: [string, string][] = [];
-    for (const ref of registryRefs) {
-      try {
-        const reg = await registryModel.find(ref.resourceinstanceid);
-        const nameCount = await reg.names.length;
-        const names: [string, string][] = [];
-
-        for (let i = 0; i < nameCount; i++) {
-          try {
-            const nameUseType = await reg.names[i].name_use_type;
-            const name = await reg.names[i].name;
-            names.push([nameUseType?.toString(), name.toString()]);
-          } catch (e) {
-            console.error(`Error loading name ${i} for registry:`, e);
-          }
-        }
-
-        const indexedNames = Object.fromEntries(names);
-        const regId = await reg.id;
-        entries.push([regId, indexedNames['Primary']]);
-      } catch (e) {
-        display.log(`Could not load registry ${ref.resourceinstanceid}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-
-    this.registries = Object.fromEntries(entries);
-    display.log(`Loaded ${entries.length} registries`);
   }
 
   async loadGraphsAndPermissions(graphManager: GraphManager, modelFiles: {[key: string]: ModelEntry}, includePrivate: boolean) {
@@ -202,11 +161,12 @@ export class ResourceLoader {
     display.log("Loading graph schemas...");
     await this.loadGraphsAndPermissions(graphManager, modelFiles, includePrivate);
 
-    // Load Registry graph schema (may not be in modelFiles)
+    // Load Registry graph schema (may not be in modelFiles) — needed so
+    // alizarin can resolve record_or_registry resource-instance references.
     display.log("Loading Registry graph...");
     await graphManager.loadGraph("Registry", includePrivate);
-    const registryModel = await graphManager.get("Registry", includePrivate);
-    await this.permissionManager.applyPermissions(registryModel, "Registry", includePrivate);
+    const RegistryModel = await graphManager.get("Registry", includePrivate);
+    await this.permissionManager.applyPermissions(RegistryModel, "Registry", includePrivate);
     display.log("Graph schemas loaded");
 
     // Phase 2: Load resources via WASM loadFromBusinessDataBytes.
@@ -259,9 +219,6 @@ export class ResourceLoader {
       }
       display.log(`Found ${resourceRefs.length} resources via JS fallback`);
     }
-
-    // Phase 3: Extract registries from pre-loaded data (no .all() call needed)
-    await this.loadRegistriesFromRefs(registryModel, resourceRefs);
 
     const graphs = new Set(resourceRefs.map(r => r.graph_id));
 
