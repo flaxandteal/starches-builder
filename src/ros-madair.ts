@@ -8,6 +8,9 @@ interface BuildRosMadairOptions {
   graphsDir: string;
   outputDir: string;
   bin: string;
+  baseUri?: string;
+  /** Explicit business data file paths. If provided, only these files are read (businessDataDir is ignored). */
+  files?: string[];
 }
 
 /**
@@ -17,33 +20,40 @@ interface BuildRosMadairOptions {
  * the same permission boundaries.
  */
 export async function buildRosMadairIndex(opts: BuildRosMadairOptions): Promise<void> {
-  const { businessDataDir, graphsDir, outputDir, bin } = opts;
+  const { businessDataDir, graphsDir, outputDir, bin, baseUri, files: explicitFiles } = opts;
 
-  // Read all individual resource JSONs written by the ETL
-  const files = await fs.promises.readdir(businessDataDir);
-  const jsonFiles = files.filter(f => f.endsWith('.json'));
+  // Resolve the list of JSON files to process
+  let filePaths: string[];
+  if (explicitFiles && explicitFiles.length > 0) {
+    filePaths = explicitFiles.map(f => path.resolve(f));
+  } else {
+    const dirEntries = await fs.promises.readdir(businessDataDir);
+    filePaths = dirEntries
+      .filter(f => f.endsWith('.json') && !f.startsWith('_'))
+      .map(f => path.join(businessDataDir, f));
+  }
 
-  if (jsonFiles.length === 0) {
+  if (filePaths.length === 0) {
     console.warn('[ros-madair] No business_data JSON files found — skipping index build.');
     return;
   }
 
   // Group resources by graph_id
   const byGraph: Record<string, any[]> = {};
-  for (const file of jsonFiles) {
-    const content = await fs.promises.readFile(path.join(businessDataDir, file), 'utf-8');
+  for (const filePath of filePaths) {
+    const content = await fs.promises.readFile(filePath, 'utf-8');
     let resource: any;
     try {
       resource = JSON.parse(content);
     } catch (e) {
-      console.warn(`[ros-madair] Failed to parse ${file}: ${e}`);
+      console.warn(`[ros-madair] Failed to parse ${filePath}: ${e}`);
       continue;
     }
 
     // ETL writes StaticResource format: { resourceinstance: { graph_id, ... }, tiles: [...] }
     const graphId = resource.resourceinstance?.graph_id;
     if (!graphId) {
-      console.warn(`[ros-madair] No graph_id found in ${file} — skipping.`);
+      console.warn(`[ros-madair] No graph_id found in ${filePath} — skipping.`);
       continue;
     }
 
@@ -97,9 +107,14 @@ export async function buildRosMadairIndex(opts: BuildRosMadairOptions): Promise<
     // Ensure output directory exists
     await fs.promises.mkdir(outputDir, { recursive: true });
 
-    // Shell out to build_from_prebuild
-    console.log(`[ros-madair] Running: ${bin} ${tmpDir} ${outputDir}`);
-    execFileSync(bin, [tmpDir, outputDir], { stdio: 'inherit' });
+    // Shell out to ros-madair-build
+    // Args: <prebuild_dir> <output_dir> [page_size] [base_uri]
+    const args = [tmpDir, outputDir];
+    if (baseUri) {
+      args.push('2000', baseUri);  // page_size is positional, must be provided to reach base_uri
+    }
+    console.log(`[ros-madair] Running: ${bin} ${args.join(' ')}`);
+    execFileSync(bin, args, { stdio: 'inherit' });
   } finally {
     // Cleanup temp directory
     fs.rmSync(tmpDir, { recursive: true, force: true });

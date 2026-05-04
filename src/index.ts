@@ -139,8 +139,13 @@ yargs(hideBin(process.argv))
   }, async (argv) => {
     await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.verbose as boolean, argv.minify as boolean, argv.buildRosMadair as boolean, argv.rosMadairBin as string, argv.rosMadairOutput as string);
   })
-  .command("build-ros-madair", "build Rós Madair SPARQL index from filtered business data", function (yargs) {
+  .command("build-ros-madair [files..]", "build Rós Madair SPARQL index from filtered business data", function (yargs) {
     return yargs
+      .positional("files", {
+        description: "explicit business data JSON file(s) to process (if omitted, scans business-data-dir)",
+        type: "string",
+        array: true,
+      })
       .option("business-data-dir", {
         description: "directory containing filtered business_data JSON files",
         type: "string",
@@ -161,8 +166,14 @@ yargs(hideBin(process.argv))
         type: "string",
         default: "ros-madair-build"
       })
+      .option("base-uri", {
+        description: "RDF base URI for the index (must match hugo.yaml ros_madair.rdf_base_uri)",
+        type: "string",
+        default: "https://example.org/"
+      })
   }, async (argv) => {
-    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string);
+    const files = (argv.files as string[] | undefined)?.length ? argv.files as string[] : undefined;
+    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string, argv.baseUri as string, files);
   })
   .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
     return yargs
