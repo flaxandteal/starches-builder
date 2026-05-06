@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { GraphManager, RDM, parseSkosXmlToCollection, staticStore, staticTypes } from 'alizarin/inline';
+import { GraphManager, RDM, parseSkosXmlToCollection, staticStore, staticTypes, formatMemoryUsage, getMemoryUsage } from 'alizarin/inline';
 import { safeJsonParseFile } from './safe-utils';
 import { getProgressDisplay } from './progress';
 import { getFilesForRegex } from './utils';
@@ -8,6 +8,7 @@ import type { ModelEntry } from "./types";
 import type { PermissionManager } from "./permissions";
 
 const RDM_COLLECTIONS_DIR = "prebuild/reference_data/collections";
+const VERBOSE = process.argv.includes('--verbose');
 
 /** Lightweight ref returned by WASM loadFromBusinessDataBytes */
 interface ResourceRef {
@@ -190,7 +191,17 @@ export class ResourceLoader {
         resourceRefs.push(...filtered);
         display.log(`Loaded ${refs.length} resources via WASM from ${filename} (${filtered.length} after scope filter)`);
       }
-      display.log(`Total: ${resourceRefs.length} resources from all files`);
+      if (VERBOSE) {
+        // Detailed stats (expensive, once only) — includes byte estimates
+        const detailedRegistry = typeof staticStore.registry.memoryStatsDetailed === 'function'
+          ? staticStore.registry.memoryStatsDetailed()
+          : undefined;
+        const detailedMem = getMemoryUsage();
+        if (detailedRegistry) detailedMem.registry = detailedRegistry;
+        display.log(`Total: ${resourceRefs.length} resources from all files ${formatMemoryUsage(detailedMem)}`);
+      } else {
+        display.log(`Total: ${resourceRefs.length} resources from all files`);
+      }
     } else {
       // Fallback: read via JS + load via staticStore.loadAll
       display.log("WASM loadFromBusinessDataBytes not available, falling back to JS path");
@@ -286,13 +297,13 @@ export class ResourceLoader {
       if (processed % 500 === 0 || (now - lastLogTime > 5000 && processed > lastLogCount)) {
         const elapsed = now - lastLogTime;
         const rate = ((processed - lastLogCount) / elapsed * 1000).toFixed(1);
-        display.log(`Found ${processed}/${processableRefs.length} (${rate} res/sec)`);
+        display.log(`Found ${processed}/${processableRefs.length} (${rate} res/sec)${VERBOSE ? ' ' + formatMemoryUsage(staticStore.registry) : ''}`);
         lastLogTime = now;
         lastLogCount = processed;
       }
       display.forceRender();
     }
 
-    display.log(`Found all ${yielded} resources`);
+    display.log(`Found all ${yielded} resources${VERBOSE ? ' ' + formatMemoryUsage(staticStore.registry) : ''}`);
   }
 }
