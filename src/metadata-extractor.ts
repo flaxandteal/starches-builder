@@ -201,13 +201,18 @@ export class MetadataExtractor {
     }
     if (polygon) {
       if (Array.isArray(polygon[0])) {
-        let polygons = polygon[0];
-        if ((Array.isArray(polygons[0][0]))) {
-          polygons = polygons.flat();
+        let ring = polygon[0];
+        // Detect nesting level: is ring a coordinate pair [lng, lat] or a ring [[lng,lat], ...]?
+        if (typeof ring[0] === 'number') {
+          // polygon is already [[lng,lat], [lng,lat], ...] — use it directly as the ring
+          ring = polygon;
+        } else if (Array.isArray(ring[0][0])) {
+          // Multi-ring or multi-polygon: flatten one level
+          ring = ring.flat();
         }
-        const centre = polygons.reduce((c: Array<number>, p: Array<number>) => {
-          c[0] += p[0] / polygons.length;
-          c[1] += p[1] / polygons.length;
+        const centre = ring.reduce((c: Array<number>, p: Array<number>) => {
+          c[0] += p[0] / ring.length;
+          c[1] += p[1] / ring.length;
           return c;
         }, [0, 0]);
         location = {

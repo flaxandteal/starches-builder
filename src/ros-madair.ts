@@ -11,6 +11,8 @@ interface BuildRosMadairOptions {
   baseUri?: string;
   /** Explicit business data file paths. If provided, only these files are read (businessDataDir is ignored). */
   files?: string[];
+  /** Directory containing SKOS reference data (collections, concepts). Symlinked into the staging area. */
+  referenceDataDir?: string;
 }
 
 /**
@@ -20,7 +22,7 @@ interface BuildRosMadairOptions {
  * the same permission boundaries.
  */
 export async function buildRosMadairIndex(opts: BuildRosMadairOptions): Promise<void> {
-  const { businessDataDir, graphsDir, outputDir, bin, baseUri, files: explicitFiles } = opts;
+  const { businessDataDir, graphsDir, outputDir, bin, baseUri, files: explicitFiles, referenceDataDir } = opts;
 
   // Resolve the list of JSON files to process
   let filePaths: string[];
@@ -85,6 +87,14 @@ export async function buildRosMadairIndex(opts: BuildRosMadairOptions): Promise<
           path.join(absGraphsDir, gf),
           path.join(tmpGraphsDir, gf),
         );
+      }
+    }
+
+    // Symlink reference_data so the binary can find SKOS collections/concepts
+    if (referenceDataDir) {
+      const absRefDir = path.resolve(referenceDataDir);
+      if (fs.existsSync(absRefDir)) {
+        await fs.promises.symlink(absRefDir, path.join(tmpDir, 'reference_data'));
       }
     }
 

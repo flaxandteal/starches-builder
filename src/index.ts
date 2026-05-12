@@ -171,9 +171,14 @@ yargs(hideBin(process.argv))
         type: "string",
         default: "https://example.org/"
       })
+      .option("reference-data-dir", {
+        description: "directory containing SKOS reference data (collections, concepts)",
+        type: "string",
+        default: "prebuild/reference_data"
+      })
   }, async (argv) => {
     const files = (argv.files as string[] | undefined)?.length ? argv.files as string[] : undefined;
-    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string, argv.baseUri as string, files);
+    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string, argv.baseUri as string, files, argv.referenceDataDir as string);
   })
   .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
     return yargs
