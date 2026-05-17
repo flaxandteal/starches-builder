@@ -36,6 +36,6 @@ export async function cli_precompile() {
   return precompileTemplates();
 }
 
-export async function cli_build_ros_madair(businessDataDir: string, graphsDir: string, outputDir: string, bin: string, baseUri?: string, files?: string[], referenceDataDir?: string) {
-  return buildRosMadairIndex({ businessDataDir, graphsDir, outputDir, bin, baseUri, files, referenceDataDir });
+export async function cli_build_ros_madair(prebuildDir: string, outputDir: string, bin: string, baseUri?: string) {
+  return buildRosMadairIndex({ prebuildDir, outputDir, bin, baseUri });
 }

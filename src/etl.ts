@@ -604,8 +604,7 @@ export async function etl(resourceFile: string, resourcePrefix: string | undefin
       log("Building Rós Madair index...");
       const { buildRosMadairIndex } = await import('./ros-madair.ts');
       await buildRosMadairIndex({
-        businessDataDir: `${PUBLIC_FOLDER}/definitions/business_data`,
-        graphsDir: 'prebuild/graphs/resource_models',
+        prebuildDir: `${PUBLIC_FOLDER}/definitions`,
         outputDir: rosMadairOutput,
         bin: rosMadairBin,
       });

@@ -139,22 +139,12 @@ yargs(hideBin(process.argv))
   }, async (argv) => {
     await cli_etl(argv.file as string, argv.prefix as string, argv.includePrivate as boolean, argv.tui as boolean, argv.lazy as boolean, argv.summary as boolean, argv.verbose as boolean, argv.minify as boolean, argv.buildRosMadair as boolean, argv.rosMadairBin as string, argv.rosMadairOutput as string);
   })
-  .command("build-ros-madair [files..]", "build Rós Madair SPARQL index from filtered business data", function (yargs) {
+  .command("build-ros-madair", "build Rós Madair SPARQL index from a prebuild-layout directory", function (yargs) {
     return yargs
-      .positional("files", {
-        description: "explicit business data JSON file(s) to process (if omitted, scans business-data-dir)",
+      .option("prebuild-dir", {
+        description: "prebuild-layout directory (graphs/, business_data/, reference_data/)",
         type: "string",
-        array: true,
-      })
-      .option("business-data-dir", {
-        description: "directory containing filtered business_data JSON files",
-        type: "string",
-        default: "docs/definitions/business_data"
-      })
-      .option("graphs-dir", {
-        description: "directory containing graph definition JSON files",
-        type: "string",
-        default: "prebuild/graphs/resource_models"
+        default: "docs/definitions"
       })
       .option("output", {
         description: "output directory for the Rós Madair index",
@@ -171,14 +161,8 @@ yargs(hideBin(process.argv))
         type: "string",
         default: "https://example.org/"
       })
-      .option("reference-data-dir", {
-        description: "directory containing SKOS reference data (collections, concepts)",
-        type: "string",
-        default: "prebuild/reference_data"
-      })
   }, async (argv) => {
-    const files = (argv.files as string[] | undefined)?.length ? argv.files as string[] : undefined;
-    await cli_build_ros_madair(argv.businessDataDir as string, argv.graphsDir as string, argv.output as string, argv.bin as string, argv.baseUri as string, files, argv.referenceDataDir as string);
+    await cli_build_ros_madair(argv.prebuildDir as string, argv.output as string, argv.bin as string, argv.baseUri as string);
   })
   .command("precompileTemplates", "precompile Handlebars templates for faster client-side rendering", function (yargs) {
     return yargs
